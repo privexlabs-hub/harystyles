@@ -1,26 +1,237 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/*
+ * Tokens → Tailwind. tokens.css (from the Claude Design source) is the single source of truth;
+ * these mappings only expose its variables as utilities. Spacing uses Tailwind's 4px scale,
+ * which is the token scale's base (s-1 = 1, s-2 = 2, s-3 = 3, s-4 = 4, s-5 = 6, s-6 = 8,
+ * s-7 = 10, s-8 = 12, s-9 = 16, s-10 = 20, s-11 = 24, s-12 = 32).
+ * Breakpoints (not defined by the design): md 768 = tablet, lg 1024 = desktop reader layout.
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-card: var(--bg-card);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-inverse: var(--bg-inverse);
+  --color-scrim: var(--bg-scrim);
+  --color-fg: var(--fg);
+  --color-fg-strong: var(--fg-strong);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-faint: var(--fg-faint);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-fg-inverse: var(--fg-inverse);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-line-soft: var(--border-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-hover: var(--accent-hover);
+  --color-premium: var(--premium);
+  --color-premium-soft: var(--premium-soft);
+  --color-wine-100: var(--wine-100);
+  --color-wine-300: var(--wine-300);
+  --color-wine-700: var(--wine-700);
+  --color-wine-900: var(--wine-900);
+  --color-ink-50: var(--ink-50);
+  --color-ink-1000: var(--ink-1000);
+  --color-mood-tender: var(--mood-tender);
+  --color-mood-restless: var(--mood-restless);
+  --color-mood-melancholy: var(--mood-melancholy);
+  --color-mood-still: var(--mood-still);
+  --color-mood-burning: var(--mood-burning);
+  --color-mood-untethered: var(--mood-untethered);
+
+  --font-serif: var(--font-display);
+  --font-sans: var(--font-ui);
+
+  --text-2xs: var(--t-2xs);
+  --text-xs: var(--t-xs);
+  --text-sm: var(--t-sm);
+  --text-base: var(--t-base);
+  --text-md: var(--t-md);
+  --text-lg: var(--t-lg);
+  --text-xl: var(--t-xl);
+  --text-2xl: var(--t-2xl);
+  --text-3xl: var(--t-3xl);
+  --text-4xl: var(--t-4xl);
+  --text-5xl: var(--t-5xl);
+  --text-6xl: var(--t-6xl);
+  --text-7xl: var(--t-7xl);
+
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+
+  --container-measure: var(--measure);
+  --container-measure-narrow: var(--measure-narrow);
+  --container-measure-wide: var(--measure-wide);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* next/font self-hosted families replace the literal family names in tokens.css. */
+:root {
+  --font-display: var(--nf-fraunces), "Iowan Old Style", Georgia, serif;
+  --font-body-serif: var(--nf-fraunces), "Iowan Old Style", Georgia, serif;
+  --font-ui: var(--nf-inter-tight), -apple-system, system-ui, sans-serif;
+  --font-mono: var(--nf-jetbrains), ui-monospace, SFMono-Regular, monospace;
+  --reading-size: var(--t-lg);
+  color-scheme: dark;
+}
+
+/* Theme "system" follows the OS: paper for light, ink otherwise (BR-PR-03). */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg: oklch(0.97 0.012 78);
+    --bg-raised: oklch(0.945 0.015 78);
+    --bg-card: oklch(0.99 0.008 80);
+    --bg-elevated: oklch(0.93 0.018 75);
+    --bg-scrim: oklch(0.2 0.02 80 / 0.45);
+    --fg: oklch(0.2 0.02 80);
+    --fg-strong: oklch(0.13 0.022 75);
+    --fg-muted: oklch(0.38 0.02 75);
+    --fg-subtle: oklch(0.5 0.018 75);
+    --fg-faint: oklch(0.62 0.015 75);
+    --fg-disabled: oklch(0.75 0.012 75);
+    --fg-inverse: oklch(0.97 0.012 78);
+    --border: oklch(0.85 0.015 75);
+    --border-strong: oklch(0.75 0.018 75);
+    --border-soft: oklch(0.92 0.012 75);
+    --accent-soft: oklch(0.92 0.045 70);
+    --accent-fg: oklch(0.97 0.012 78);
+    color-scheme: light;
+  }
+}
+[data-theme="paper"] {
+  color-scheme: light;
+}
+
+/* Type pairs (BR-PR-03). serif_sans is the canonical Fraunces + Inter Tight pairing. */
+[data-type-pair="serif_mono"] {
+  --font-ui: var(--nf-jetbrains), ui-monospace, monospace;
+}
+[data-type-pair="all_serif"] {
+  --font-ui: var(--nf-fraunces), "Iowan Old Style", Georgia, serif;
+}
+[data-dyslexia="true"] {
+  --font-body-serif: var(--nf-atkinson), system-ui, sans-serif;
+}
+[data-reading-size="s"] {
+  --reading-size: var(--t-md);
+}
+[data-reading-size="l"] {
+  --reading-size: var(--t-xl);
+}
+
+/* Visible focus everywhere (WCAG 2.2 AA, 2.4.7 / 2.4.11). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Reading body: Fraunces at reading optical size, size from the reader's preference. */
+.letter-body {
+  font-family: var(--font-body-serif);
+  font-size: var(--reading-size);
+  line-height: var(--lh-loose);
+  font-variation-settings: "opsz" 24;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.letter-body p {
+  margin: 0 0 1.4em;
+}
+.letter-body h2,
+.letter-body h3 {
+  font-family: var(--font-display);
+  color: var(--fg-strong);
+  font-weight: 500;
+  line-height: var(--lh-snug);
+  margin: 1.8em 0 0.6em;
+}
+.letter-body h2 {
+  font-size: 1.35em;
+}
+.letter-body h3 {
+  font-size: 1.15em;
+}
+.letter-body blockquote {
+  margin: 1.6em 0;
+  padding: 0.2em 0 0.2em 1.2em;
+  border-left: 2px solid var(--accent);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.2em;
+  line-height: 1.35;
+  color: var(--fg-strong);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+.letter-body blockquote p {
+  margin: 0;
+}
+.letter-body hr {
+  border: 0;
+  text-align: center;
+  margin: 2em 0;
+}
+.letter-body hr::after {
+  content: "❦";
+  color: var(--accent);
+}
+.letter-body > p:first-child::first-letter {
+  font-family: var(--font-display);
+  font-weight: 500;
+  float: left;
+  font-size: 4.4em;
+  line-height: 0.85;
+  padding: 0.08em 0.1em 0 0;
+  margin-right: 0.04em;
+  color: var(--accent);
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+}
+
+.sentence {
+  border-radius: 3px;
+  transition: background-color var(--dur-2) var(--ease-out);
+  cursor: text;
+}
+.sentence[data-reacted] {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+.sentence[data-selected] {
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+}
+
+/* Patron preview fade (soft fade, not a hard wall). */
+.preview-fade {
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+
+.glow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  display: inline-block;
+}
+.amber-orb {
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 40%, var(--amber-300), var(--amber-600) 60%, var(--amber-800));
+  box-shadow: var(--shadow-glow);
 }

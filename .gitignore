@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local embedded database (PGlite)
+/.pglite/
+# dev mail outbox (captured magic links)
+/.mail/
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+# neon local context
+/.neon
+.shots/
+/.next-e2e/
+
+# local logs
+*.log
+/.next-build/
