@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — Engineering 2: System architecture &amp; technology stack</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&amp;family=Inter+Tight:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<doc-page margin="0.75in">
+<footer slot="footer"><span>HARYSTYLES · ENGINEERING HANDBOOK · PART 2</span><span>v1.0 · OCT 2026</span></footer>
+<!--BEGIN-->
+<div class="eyebrow">Engineering handbook · Part 2 of 5 · Areas 2 &amp; 5</div>
+<h1 class="part-title">System architecture &amp; <em>technology stack</em></h1>
+<p class="lede">How the web apps, mobile apps, backend, database, jobs, files and third parties talk to each other, and the small set of tools we use to build them.</p>
+<div class="meta"><span><b>Owner</b> Tech lead</span><span><b>Style</b> Modular monolith · one API for web + mobile · async via outbox</span><span><b>Related ADRs</b> 001–012</span></div>
+
+<h2>2.1 Architectural principles</h2>
+<ol>
+<li><b>One backend, one API, many clients.</b> Web reader, web studio, internal console, iOS and Android all call the same versioned HTTP API. There are no client-specific business rules and no "mobile-only" endpoints without an ADR.</li>
+<li><b>Modular monolith first.</b> One deployable codebase, split into business modules with enforced boundaries (Part 4). We split out a service only when a module has a different scaling or security profile <i>and</i> the cost is measured (ADR-002).</li>
+<li><b>Each business rule lives in exactly one place.</b> The rule index (Part 4 §4.4) names the single function for each rule. Clients render results; they never recompute them.</li>
+<li><b>The server is authoritative.</b> Access, price, split, evening date, ration contents and counts are decided on the server and returned as data.</li>
+<li><b>Side effects are asynchronous and idempotent.</b> State changes and the events describing them commit in one database transaction (transactional outbox). Workers deliver effects with idempotency keys. External calls never happen inside a database transaction.</li>
+<li><b>Postgres is the system of record.</b> Redis, CDN, search and caches can be rebuilt from Postgres at any time.</li>
+<li><b>Boring, few, well-supported tools.</b> Every runtime dependency has an owner and an ADR (Part 2 §2.12).</li>
+<li><b>Everything is code.</b> Infrastructure, schema, flags, permissions and docs are versioned and reviewed.</li>
+</ol>
+
+<h2>2.2 System context</h2>
+<pre><code>  ┌──────────────┐  ┌───────────────────────────┐  ┌─────────────────────┐
+  │ iOS / Android│  │ Web (Next.js)             │  │ Console (Next.js)   │
+  │ Expo app     │  │ reader · studio · marketing│  │ curation · T&amp;S · $  │
+  └──────┬───────┘  └────────────┬──────────────┘  └─────────┬───────────┘
+         │ HTTPS JSON /v1        │ server components → API     │ staff SSO + MFA
+         │ bearer token          │ session cookie forwarded    │
+         └───────────────┬───────┴─────────────────────────────┘
+                         ▼
+          ┌─────────────────────────────────────────────┐
+ webhooks │  API service  (Fastify · modular monolith)  │
+ ───────▶ │  /v1/*  /v1/admin/*  /webhooks/*            │
+          └──┬─────────┬───────────┬──────────────┬─────┘
+             ▼         ▼           ▼              ▼
+        PostgreSQL   Redis     S3 + CDN     outbox_events ──▶ pg-boss queue
+        (primary +  (cache,   (media,                          │
+         replica)    limits)   cards)                          ▼
+                                            ┌───────────────────────────────┐
+                                            │ Worker service (same code)    │
+                                            │ jobs · schedulers · consumers │
+                                            └─┬──────┬──────┬──────┬────────┘
+                                              ▼      ▼      ▼      ▼
+                                           Stripe  Email  Push   Image/card
+                                           (Billing, (Postmark) (APNs/FCM  render
+                                            Connect,            via Expo)
+                                            Tax)</code></pre>
+
+<h2>2.3 Components &amp; responsibilities</h2>
+<table><thead><tr><th>Component</th><th>Responsibility</th><th>Must not</th></tr></thead><tbody>
+<tr><td>Mobile app (Expo / React Native)</td><td>Reader experience, draft editing, push, offline cache of tonight's ration, secure token storage</td><td>Compute access, price, ration or counts. Hold secrets. Call Stripe except through the payment sheet.</td></tr>
+<tr><td>Web app (Next.js)</td><td>Server-rendered reader pages (SEO for public letters and writer pages), studio, marketing. Acts as a thin backend-for-frontend: server components call the API with the user's session.</td><td>Access the database. Contain business rules. Cache entitled responses at the CDN.</td></tr>
+<tr><td>Console (Next.js, separate origin)</td><td>Curation calendar, issue builder, moderation queue, finance tools</td><td>Bypass <code>/v1/admin</code> policies. Run raw SQL.</td></tr>
+<tr><td>API service</td><td>Authentication, authorization, validation, use-case orchestration, synchronous reads and writes, webhook intake</td><td>Call external APIs inside DB transactions. Do long work in a request (anything over 1 s becomes a job).</td></tr>
+<tr><td>Worker service</td><td>Outbox relay, scheduled jobs, webhook processing, emails, pushes, media, cards, payouts, aggregation, purge</td><td>Expose HTTP, apart from health checks.</td></tr>
+<tr><td>PostgreSQL</td><td>System of record, job queue (pg-boss), full-text search (MVP)</td><td>Hold secrets or card data.</td></tr>
+<tr><td>Redis</td><td>Rate limits, short-lived caches, dirty-sets for aggregation, session cache</td><td>Be the only copy of anything.</td></tr>
+<tr><td>S3 + CloudFront</td><td>Media (public and private buckets), cards, exports</td><td>Serve private media without signed URLs.</td></tr>
+</tbody></table>
+
+<h2>2.4 Communication rules</h2>
+<table><thead><tr><th>From → to</th><th>Mechanism</th><th>Rules</th></tr></thead><tbody>
+<tr><td>Client → API</td><td>HTTPS JSON, <code>/v1</code>, OpenAPI-described</td><td>Typed clients generated from <code>@hs/contracts</code>. Each request carries <code>X-Client: ios/1.4.2</code> and <code>X-Request-Id</code>.</td></tr>
+<tr><td>Web server → API</td><td>Internal HTTPS, session cookie forwarded</td><td>Same endpoints as mobile. The API never trusts the web server's claims; it validates the session itself.</td></tr>
+<tr><td>Module → module (sync)</td><td>Function call through the target module's <code>index.ts</code></td><td>Never deep imports. Never another module's tables.</td></tr>
+<tr><td>Module → module (async)</td><td>Domain event written to <code>outbox_events</code> in the same transaction</td><td>Consumers are idempotent and tolerate out-of-order delivery.</td></tr>
+<tr><td>Provider → us</td><td>Webhooks to <code>/webhooks/{provider}</code></td><td>Verify the signature, store in <code>inbox_events</code> (unique by provider event ID), return 200, process in the worker.</td></tr>
+<tr><td>Us → provider</td><td>From worker jobs (checkout session creation is the only synchronous exception)</td><td>Idempotency key on every mutating call. Timeouts 10 s. Circuit breaker per provider.</td></tr>
+<tr><td>Client → storage</td><td>Presigned URLs from the API</td><td>Uploads use presigned POST with size and type limits. Private reads use signed GET (10 min).</td></tr>
+</tbody></table>
+
+<h2>2.5 API design standard</h2>
+<ul>
+<li><b>Style:</b> resource-oriented REST, JSON, <code>camelCase</code> fields, ISO-8601 UTC timestamps, money as <code>{ amountMinor: 400, currency: "USD" }</code>.</li>
+<li><b>Versioning:</b> <code>/v1</code>. Only additive changes inside a version: new optional fields and new endpoints. Removing or renaming anything requires <code>/v2</code> or a 6-month deprecation with a <code>Sunset</code> header.</li>
+<li><b>Errors:</b> RFC 9457 <code>application/problem+json</code> with a stable <code>code</code> (e.g. <code>BILLING_CARD_DECLINED</code>), a user-safe <code>title</code>, and <code>requestId</code>. Clients branch on <code>code</code>, never on the message text.</li>
+<li><b>Pagination:</b> keyset cursors (<code>?cursor=…&amp;limit=…</code>, max 50), never offsets.</li>
+<li><b>Idempotency:</b> <code>Idempotency-Key</code> is required on POSTs that create money movements, messages, reports or patronages. The stored response is replayed for 24h.</li>
+<li><b>Concurrency:</b> letters and issues return an <code>ETag</code> (version). Updates require <code>If-Match</code>, or get <code>412</code> on conflict.</li>
+<li><b>Access-shaped responses:</b> any content response includes the server's verdict, so clients never compute it:</li>
+</ul>
+<pre><code>GET /v1/letters/{id}
+{ "letter": { "id": "…", "title": "…", "visibility": "patron", "readingMinutes": 7, … },
+  "access": { "level": "preview", "reason": "not_patron",
+              "cta": { "kind": "become_patron", "writerId": "…", "price": { "amountMinor": 400, "currency": "USD", "interval": "month" } } },
+  "body": [ /* blocks already truncated by the server */ ],
+  "contentNotes": ["grief"], "interstitial": null }</code></pre>
+
+<h3>Endpoint catalogue (v1, abbreviated)</h3>
+<table><thead><tr><th>Area</th><th>Endpoints</th></tr></thead><tbody>
+<tr><td>Bootstrap</td><td><code>GET /me/bootstrap</code>: user, roles, preferences, evaluated flags, minimum app version, lamp schedule. One call at launch.</td></tr>
+<tr><td>Auth</td><td><code>POST /auth/magic-link</code> · <code>POST /auth/magic-link/verify</code> · <code>POST /auth/oauth/{apple|google}</code> · <code>POST /auth/passkey/*</code> · <code>POST /auth/refresh</code> · <code>POST /auth/logout</code> · <code>GET/DELETE /me/sessions</code></td></tr>
+<tr><td>Preferences</td><td><code>GET/PATCH /me/preferences</code> (per-field) · <code>GET/PATCH /me/notification-settings</code> · <code>POST /me/devices</code></td></tr>
+<tr><td>Tonight</td><td><code>GET /tonight</code> (builds lazily) · <code>POST /tonight/mood-switch</code> · <code>POST /reading-progress</code> (batched heartbeats)</td></tr>
+<tr><td>Discovery</td><td><code>GET /moods</code> · <code>GET /moods/{mood}/picks</code> · <code>GET /search?q=</code> · <code>GET /writers/{slug}</code> · <code>GET /writers/{slug}/letters</code> · <code>GET /notebooks/{id}</code></td></tr>
+<tr><td>Letters (read)</td><td><code>GET /letters/{id}</code> · <code>GET /letters/{id}/anchors</code></td></tr>
+<tr><td>Engagement</td><td><code>PUT/DELETE /letters/{id}/reactions/{anchorId}</code> · <code>POST/GET/DELETE /me/kept-lines</code> · <code>POST /me/kept-lines/{id}/card</code> · <code>PUT/DELETE /me/follows/{writerId}</code> · <code>PUT/DELETE /me/saves/{letterId}</code> · <code>PUT/DELETE /me/blocks/{userId}</code></td></tr>
+<tr><td>Letters inbox</td><td><code>GET /me/threads</code> · <code>GET /me/threads/{id}</code> · <code>POST /writers/{id}/messages</code> · <code>POST /threads/{id}/messages</code></td></tr>
+<tr><td>Patronage</td><td><code>POST /patronages/checkout</code> (returns a payment client secret or web URL) · <code>GET /me/patronages</code> · <code>POST /patronages/{id}/cancel</code> · <code>POST /patronages/{id}/resume</code> · <code>POST /tips</code> · <code>POST /me/refund-requests</code> · <code>GET /me/charges</code></td></tr>
+<tr><td>Studio</td><td><code>POST/GET/PATCH /studio/letters</code> · <code>POST /studio/letters/{id}/publish|schedule|withdraw</code> · <code>GET /studio/letters/{id}/revisions</code> · <code>/studio/notebooks</code> · <code>GET /studio/stats</code> · <code>GET /studio/patrons</code> · <code>GET /studio/earnings</code> · <code>POST /studio/payout-onboarding</code> · <code>POST /media/uploads</code></td></tr>
+<tr><td>Writer application</td><td><code>POST /writer-applications</code> · <code>GET /me/writer-application</code></td></tr>
+<tr><td>Safety</td><td><code>POST /reports</code> · <code>GET /me/sanctions</code> · <code>POST /appeals</code></td></tr>
+<tr><td>Account</td><td><code>POST /me/export</code> · <code>POST /me/deletion</code> · <code>DELETE /me/deletion</code></td></tr>
+<tr><td>Admin (staff)</td><td><code>/admin/issues</code> · <code>/admin/curation-queue</code> · <code>/admin/evergreen</code> · <code>/admin/applications</code> · <code>/admin/reports</code> · <code>/admin/sanctions</code> · <code>/admin/refunds</code> · <code>/admin/payouts</code> · <code>/admin/roles</code> · <code>/admin/audit</code> · <code>/admin/flags</code></td></tr>
+<tr><td>Webhooks</td><td><code>/webhooks/stripe</code> · <code>/webhooks/stripe-connect</code> · <code>/webhooks/postmark</code> · (future) <code>/webhooks/apple</code>, <code>/webhooks/google</code></td></tr>
+</tbody></table>
+
+<h2 class="chapter">2.6 Background jobs</h2>
+<table><thead><tr><th>Job</th><th>Trigger</th><th>Idempotency key</th><th>Retry</th></tr></thead><tbody>
+<tr><td><code>outbox.relay</code></td><td>Continuous (poll every 500 ms, <code>SKIP LOCKED</code>)</td><td>event ID</td><td>Forever, alert at lag > 60 s</td></tr>
+<tr><td><code>ration.prebuild</code></td><td>Every minute: readers with the lamp push on and <code>next_lamp_at ≤ now+2 min</code></td><td><code>ration:{reader}:{eveningDate}</code></td><td>3× then the lazy build covers it</td></tr>
+<tr><td><code>notify.lamp</code></td><td>After prebuild</td><td><code>lamp:{reader}:{eveningDate}</code></td><td>Dropped after 30 min</td></tr>
+<tr><td><code>schedule.recompute</code></td><td>Preference, time zone or location change; daily sweep</td><td><code>sched:{reader}:{date}</code></td><td>5× exponential</td></tr>
+<tr><td><code>letter.publish-scheduled</code></td><td>Every 30 s</td><td><code>publish:{letter}:{revision}</code></td><td>5×</td></tr>
+<tr><td><code>issue.lock</code> / <code>issue.autofill</code></td><td>Hourly; lock window per BR-CU-04</td><td><code>issue:{date}:{mood}</code></td><td>5×, page on failure</td></tr>
+<tr><td><code>ration.repair</code></td><td>LetterWithdrawn / LetterRemoved / WriterSuspended / Blocked</td><td><code>repair:{letter}:{event}</code></td><td>10×</td></tr>
+<tr><td><code>billing.inbox.process</code></td><td>New <code>inbox_events</code> row</td><td>provider event ID</td><td>12× over 24h, then dead-letter + alert</td></tr>
+<tr><td><code>ledger.post</code></td><td>ChargeSucceeded / Refunded / Disputed</td><td><code>ledger:{source}:{id}</code></td><td>Forever, alert</td></tr>
+<tr><td><code>entitlement.reconcile</code></td><td>Nightly, plus on demand</td><td>run date</td><td>Alerts on any drift</td></tr>
+<tr><td><code>payout.run</code> / <code>payout.reconcile</code></td><td>5th of month 09:00 UTC / daily</td><td><code>payout:{writer}:{period}:{ccy}</code></td><td>Manual after 3 failures</td></tr>
+<tr><td><code>email.send</code> / <code>push.send</code></td><td>Notification events</td><td>notification <code>dedupe_key</code></td><td>5× / 3×</td></tr>
+<tr><td><code>media.process</code></td><td>Upload confirmed</td><td>media ID</td><td>3×, then <code>rejected</code></td></tr>
+<tr><td><code>card.render</code></td><td>Card requested</td><td><code>card:{keptLine}:{theme}:{typePair}</code></td><td>3×</td></tr>
+<tr><td><code>search.index</code></td><td>Letter/writer events</td><td><code>idx:{entity}:{version}</code></td><td>5×</td></tr>
+<tr><td><code>stats.aggregate</code></td><td>Every 5 min (dirty set)</td><td>window</td><td>Next run catches up</td></tr>
+<tr><td><code>moderation.classify</code></td><td>MessageSent</td><td>message ID</td><td>3×, fail-open to P2 queue</td></tr>
+<tr><td><code>account.purge</code> / <code>export.build</code></td><td>Daily / on request</td><td>user ID</td><td>5×, alert</td></tr>
+</tbody></table>
+
+<h2>2.7 Domain events</h2>
+<p>Events describe facts in the past tense. They are versioned (<code>type</code> + <code>version</code>) and carry IDs plus the minimum data consumers need. Consumers re-read the current state when correctness depends on it. An event's schema lives in <code>@hs/contracts/events</code>, and changing it follows the same additive rule as the API.</p>
+<table><thead><tr><th>Event</th><th>Producer</th><th>Consumers</th></tr></thead><tbody>
+<tr><td>LetterPublished · LetterRepublished</td><td>content</td><td>search, curation queue, notifications (patrons/followers), engagement (re-anchor)</td></tr>
+<tr><td>LetterWithdrawn · LetterRemoved · LetterVisibilityChanged</td><td>content / moderation</td><td>ration (repair), curation (issues, evergreen), search, cache</td></tr>
+<tr><td>WriterApproved · WriterSuspended · WriterReinstated · WriterBanned · WriterDeparted · PenNameChanged</td><td>profiles / moderation</td><td>billing (pause/cancel), curation, ration, search, slugs</td></tr>
+<tr><td>IssueLocked · IssueHotSwapped</td><td>curation</td><td>ration (cache warm), audit</td></tr>
+<tr><td>RationBuilt · SlotRead</td><td>ration</td><td>engagement (reads), stats</td></tr>
+<tr><td>PatronageStarted · PatronageCancelScheduled · PatronageLapsed · PatronageEnded</td><td>billing</td><td>entitlements, notifications, studio stats</td></tr>
+<tr><td>ChargeSucceeded · ChargeRefunded · ChargeDisputed</td><td>billing</td><td>ledger, entitlements, notifications</td></tr>
+<tr><td>EntitlementChanged</td><td>entitlements</td><td>cache invalidation, ration (personal slots)</td></tr>
+<tr><td>ReactionChanged · KeptLineCreated</td><td>engagement</td><td>stats (dirty set)</td></tr>
+<tr><td>MessageSent</td><td>messaging</td><td>moderation (classify), notifications</td></tr>
+<tr><td>ReportFiled · SanctionApplied</td><td>moderation</td><td>content, profiles, notifications, audit</td></tr>
+<tr><td>PreferencesChanged</td><td>preferences</td><td>schedule recompute, cache</td></tr>
+<tr><td>AccountDeletionRequested · AccountPurged</td><td>identity</td><td>every module that holds personal data</td></tr>
+</tbody></table>
+
+<h2>2.8 File storage</h2>
+<table><thead><tr><th>Bucket</th><th>Contents</th><th>Access</th></tr></thead><tbody>
+<tr><td><code>hs-media-public</code></td><td>Avatars, images in public letters (processed variants)</td><td>CDN, immutable keys (content hash), long cache</td></tr>
+<tr><td><code>hs-media-private</code></td><td>Images in patron letters</td><td>Signed GET URLs (10 min) issued only by the entitled render path</td></tr>
+<tr><td><code>hs-cards</code></td><td>Rendered cards, OG images (public letters only)</td><td>CDN</td></tr>
+<tr><td><code>hs-exports</code></td><td>Data exports, statements</td><td>Signed (7 days), lifecycle delete after 14 days</td></tr>
+<tr><td><code>hs-quarantine</code></td><td>Raw uploads before processing</td><td>No public access, deleted after 24h</td></tr>
+</tbody></table>
+<p><b>Upload flow:</b> client asks <code>POST /media/uploads</code> (declares type and size) → API returns presigned POST to the quarantine bucket (JPEG/PNG/WebP/HEIC only, max 10 MB) → client uploads → client confirms → worker checks magic bytes, strips EXIF, scans for malware, creates AVIF/WebP variants (480/960/1600 px), moves to the public or private bucket based on the letter's visibility → <code>media.status = ready</code>. If a letter changes visibility, its media is copied to the right bucket by the same job.</p>
+
+<h2>2.9 Caching</h2>
+<table><thead><tr><th>Layer</th><th>What</th><th>Invalidation</th></tr></thead><tbody>
+<tr><td>CDN (anonymous only)</td><td>Server-rendered public letter pages, writer pages, marketing, media, cards</td><td><code>s-maxage=300, stale-while-revalidate=86400</code>; purge on LetterWithdrawn/Removed and PenNameChanged</td></tr>
+<tr><td>CDN (signed-in)</td><td>Never</td><td><code>Cache-Control: private, no-store</code> on every authenticated response</td></tr>
+<tr><td>Redis: render cache</td><td>Rendered blocks per <code>{letterId}:{revisionId}:{level}</code></td><td>The key includes the revision, so it never goes stale; TTL 24h</td></tr>
+<tr><td>Redis: entitlement</td><td><code>ent:{reader}:{writer}</code> → until-timestamp</td><td>Deleted on EntitlementChanged; TTL 60 s as a safety net</td></tr>
+<tr><td>Redis: issue</td><td>Issue slots per (date, mood)</td><td>Deleted on hot swap; TTL 1h</td></tr>
+<tr><td>Client (TanStack Query)</td><td>Server state</td><td>Server-driven <code>staleTime</code> per resource; refetch on focus</td></tr>
+</tbody></table>
+
+<h2>2.10 Integrations</h2>
+<table><thead><tr><th>Concern</th><th>Provider</th><th>Port (interface we own)</th></tr></thead><tbody>
+<tr><td>Payments, subscriptions, tax, payouts</td><td>Stripe Billing + Stripe Tax + Connect Express</td><td><code>PaymentsGateway</code>, <code>PayoutsGateway</code></td></tr>
+<tr><td>Sign-in</td><td>Apple, Google (OIDC), WebAuthn</td><td><code>IdentityProvider</code></td></tr>
+<tr><td>Email</td><td>Postmark (transactional stream + broadcast stream)</td><td><code>Mailer</code></td></tr>
+<tr><td>Push</td><td>Expo Push Service (APNs, FCM)</td><td><code>PushSender</code></td></tr>
+<tr><td>Storage / CDN</td><td>S3, CloudFront</td><td><code>ObjectStore</code></td></tr>
+<tr><td>Safety classifier</td><td>Hosted moderation model (provider chosen at build time)</td><td><code>SafetyClassifier</code></td></tr>
+<tr><td>Errors / telemetry</td><td>Sentry · OpenTelemetry → Grafana Cloud</td><td>logger / tracer wrappers</td></tr>
+</tbody></table>
+<p>Every provider is used only through its port in the owning module's <code>infra/</code> folder. Tests use in-memory fakes of the same port. Changing provider means writing one adapter, not editing use cases.</p>
+
+<h2>2.11 Modes &amp; pairs across all clients</h2>
+<p>There are three themes (<code>ink</code>, <code>dusk</code>, <code>paper</code>, plus <code>system</code>) and three type pairs (<code>serif_sans</code> = Fraunces + Inter Tight, <code>serif_mono</code> = Fraunces + JetBrains Mono, <code>all_serif</code> = Fraunces only). That makes 9 visual combinations, all supported on web, iOS, Android and in server-rendered artifacts.</p>
+<ul>
+<li><b>One token source:</b> <code>packages/tokens/src/*.json</code> (color scales in OKLCH with sRGB fallbacks, type, space, radii, motion). A build step (Style Dictionary) produces: web CSS variables under <code>[data-theme][data-type-pair]</code>, a React Native theme object, and email-safe hex values for <code>paper</code>. Nobody hand-edits the outputs; CI fails if they drift from the source.</li>
+<li><b>Preference sync:</b> <code>user_preferences</code> on the server (BR-PR-03). <code>GET /me/bootstrap</code> returns it. <code>PATCH /me/preferences</code> sends only changed fields, and the server timestamps each field (last-write-wins, BR-PR-04).</li>
+<li><b>No flash on web:</b> the web app mirrors theme and type pair into a first-party cookie <code>hs_pref</code>, which the server reads to render the right <code>data-theme</code> attribute. <code>system</code> resolves on the client with an inline pre-paint script.</li>
+<li><b>Mobile:</b> applied before the first screen renders, from SecureStore cache, then reconciled with bootstrap. <code>theme_auto_by_time</code> switches at lamp time (dusk) and 06:00 (paper), computed by the client from the server-provided schedule.</li>
+<li><b>Server-rendered artifacts:</b> cards and OG images take <code>theme</code> + <code>typePair</code> parameters (validated enums). Emails are always paper (BR-PR-05).</li>
+<li><b>Testing:</b> visual regression runs all 9 combinations on key screens (Part 5 §7.1). Contrast is checked per theme by a token unit test (text ≥ 4.5:1).</li>
+</ul>
+
+<h2 class="chapter">2.12 Technology stack (Area 5)</h2>
+<p>The rule for choosing: <b>one tool per job, TypeScript everywhere, mainstream and well maintained, and runnable locally with Docker.</b></p>
+<table><thead><tr><th>Concern</th><th>Choice</th><th>Why</th><th>Rejected</th></tr></thead><tbody>
+<tr><td>Language</td><td>TypeScript 5 (strict) everywhere</td><td>One language across API, web and mobile; shared contracts</td><td>Polyglot services</td></tr>
+<tr><td>Runtime</td><td>Node.js 22 LTS</td><td>LTS, ecosystem</td><td>Bun/Deno (younger tooling)</td></tr>
+<tr><td>HTTP server</td><td>Fastify 5</td><td>Fast, schema-first, mature plugins</td><td>Express (slower, weaker typing), NestJS (heavy)</td></tr>
+<tr><td>Contracts</td><td>Zod schemas → OpenAPI 3.1 (zod-to-openapi) → generated clients (openapi-typescript + openapi-fetch)</td><td>One source for validation, docs and client types</td><td>Hand-written clients; GraphQL (unneeded for this domain)</td></tr>
+<tr><td>Database</td><td>PostgreSQL 16 (RDS, Multi-AZ)</td><td>Relational integrity, JSONB, full-text search, mature</td><td>NoSQL (our data is relational and financial)</td></tr>
+<tr><td>Data access</td><td>Drizzle ORM + plain SQL migrations (drizzle-kit generate, reviewed)</td><td>Typed, close to SQL, no runtime magic</td><td>Prisma (heavier engine, weaker SQL control)</td></tr>
+<tr><td>Jobs</td><td>pg-boss</td><td>Transactional with our data; no extra infrastructure until ~1k jobs/s</td><td>SQS/Kafka (premature)</td></tr>
+<tr><td>Cache / limits</td><td>Redis 7 (ElastiCache)</td><td>Standard</td><td>In-memory (doesn't work with multiple instances)</td></tr>
+<tr><td>Auth</td><td>Own <code>identity</code> module: sessions in Postgres, <code>arctic</code> (OAuth), <code>@simplewebauthn/server</code>, <code>jose</code> (JWT)</td><td>Full control over linking, deletion and mobile tokens; small audited libraries</td><td>Hosted auth (cost, lock-in, harder account linking)</td></tr>
+<tr><td>Payments</td><td>Stripe Billing, Connect Express, Tax; Stripe Elements (web), PaymentSheet (mobile)</td><td>Bundled subscriptions with line items, marketplace payouts, PCI SAQ-A</td><td>Building our own</td></tr>
+<tr><td>Web</td><td>Next.js 15 (App Router), React 19, CSS Modules + token variables</td><td>Server rendering for SEO, route groups for reader/studio/marketing</td><td>SPA-only (no SEO)</td></tr>
+<tr><td>Editor</td><td>TipTap (ProseMirror) with a shared schema package; mobile uses TipTap in an isolated WebView</td><td>One document model and one editor everywhere</td><td>Two native editors (divergent output)</td></tr>
+<tr><td>Mobile</td><td>Expo (React Native), Expo Router, expo-secure-store, expo-notifications, EAS Build/Submit</td><td>Single codebase (decision D10), managed native builds</td><td>Separate Swift/Kotlin apps (2× cost at MVP)</td></tr>
+<tr><td>Client data</td><td>TanStack Query</td><td>Caching, retries, offline persistence</td><td>Redux for server state</td></tr>
+<tr><td>Search</td><td>Postgres full-text + <code>pg_trgm</code></td><td>Enough for under 1M letters</td><td>OpenSearch (until measured need)</td></tr>
+<tr><td>Email</td><td>Postmark + React Email templates</td><td>Deliverability, separate streams</td><td>—</td></tr>
+<tr><td>Images / cards</td><td><code>sharp</code>; Satori + resvg for cards and OG</td><td>Fast, server-side, deterministic</td><td>Headless browser rendering (heavy)</td></tr>
+<tr><td>Observability</td><td>pino, OpenTelemetry, Sentry, Grafana Cloud</td><td>Open standards, vendor-swappable</td><td>—</td></tr>
+<tr><td>Testing</td><td>Vitest, Testcontainers, fast-check, Playwright, Maestro, k6, axe-core</td><td>Part 5 §7</td><td>—</td></tr>
+<tr><td>Monorepo</td><td>pnpm workspaces + Turborepo; ESLint (+ boundaries), Prettier, dependency-cruiser</td><td>Shared packages, cached builds, enforced module boundaries</td><td>Polyrepo (contract drift)</td></tr>
+<tr><td>Infrastructure</td><td>AWS: ECS Fargate (api, worker, web), RDS, ElastiCache, S3, CloudFront, Secrets Manager, KMS, WAF; Terraform</td><td>One cloud, managed services, infrastructure as code</td><td>Kubernetes (operational overhead at this scale)</td></tr>
+<tr><td>CI/CD</td><td>GitHub Actions; EAS for mobile; Renovate</td><td>Standard</td><td>—</td></tr>
+</tbody></table>
+
+<h3>Dependency policy</h3>
+<ul>
+<li>A new <b>runtime</b> dependency in <code>services/</code> or <code>apps/mobile</code> needs an ADR or a short note in the PR covering: purpose, alternatives, license (MIT, Apache-2.0, BSD, ISC only), maintenance health (release in the last 6 months, more than one maintainer or backed by an organization), bundle and native impact, and exit cost.</li>
+<li>Prefer the platform and existing dependencies. No two libraries for the same job (e.g. one date library: <code>Temporal</code> polyfill; one validation library: Zod).</li>
+<li>Renovate opens update PRs weekly, grouped by ecosystem. Security patches merge within 72h (critical: 24h). Majors are planned quarterly.</li>
+<li>Lockfile is committed. <code>pnpm audit</code> and license checks run in CI. Packages that run install scripts are on an allow-list.</li>
+<li>Expo SDK upgrades follow the Expo release cadence, within 2 months of a new SDK.</li>
+</ul>
+<!--END-->
+</doc-page>
+<script src="doc-page.js"></script>
+</body>
+</html>

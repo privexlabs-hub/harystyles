@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — Engineering 5: Testing, scalability, operations &amp; governance</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&amp;family=Inter+Tight:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<doc-page margin="0.75in">
+<footer slot="footer"><span>HARYSTYLES · ENGINEERING HANDBOOK · PART 5</span><span>v1.0 · OCT 2026</span></footer>
+<!--BEGIN-->
+<div class="eyebrow">Engineering handbook · Part 5 of 5 · Areas 7–10</div>
+<h1 class="part-title">Testing, scalability, operations &amp; <em>governance</em></h1>
+<p class="lede">How we prove features work alone and together, scale only what needs it, ship and recover safely, and keep the system understandable for every person and AI agent who changes it.</p>
+<div class="meta"><span><b>Owners</b> QA lead · Platform lead · Tech lead</span><span><b>Covers</b> Areas 7 testing · 8 scalability · 9 deployment &amp; operations · 10 documentation &amp; governance</span></div>
+
+<h2>7.1 Test strategy</h2>
+<table><thead><tr><th>Layer</th><th>Scope</th><th>Tooling</th><th>Gate</th></tr></thead><tbody>
+<tr><td>Domain unit</td><td>Pure rules: state machines, policies, builder, allocation, clocks, preview, quotas</td><td>Vitest + fake <code>Clock</code>/<code>Random</code></td><td>≥90% line coverage in <code>domain/</code>; every BR/INV ID referenced by at least one test</td></tr>
+<tr><td>Property-based</td><td>Money allocation, ration builder, evening date and lamp time, anchors, cursor encoding</td><td>fast-check (1,000 runs in CI, 100k nightly)</td><td>Required for any change in these files</td></tr>
+<tr><td>Integration</td><td>Use cases against real Postgres + Redis, with fake external gateways</td><td>Vitest + Testcontainers</td><td>Every use case: happy path, each error code, idempotent replay</td></tr>
+<tr><td>Contract</td><td>OpenAPI vs. implementation; backward compatibility for supported app versions</td><td>Schema snapshot tests, <code>openapi-diff</code> against every tag in the support window</td><td>No breaking diff in <code>/v1</code></td></tr>
+<tr><td>Security</td><td>Route policy registry, IDOR suite (actor A can't touch B's objects), leak scanner (INV-01/02/18), logger redaction, ZAP baseline, dependency and secret scans</td><td>Custom tests + OWASP ZAP + gitleaks + pnpm audit</td><td>Zero failures</td></tr>
+<tr><td>Cross-feature scenarios</td><td>FX-01…FX-14 and EX-01…EX-15 as executable stories through the API</td><td>Scenario DSL in <code>@hs/test-kit</code></td><td>All green on every merge</td></tr>
+<tr><td>Billing end-to-end</td><td>Real Stripe test mode with test clocks: renewals, failed payments, proration, refunds, disputes, payouts</td><td>Nightly suite</td><td>Nightly must pass before a production promote</td></tr>
+<tr><td>Web end-to-end</td><td>Critical journeys: onboarding, Tonight, read + react + keep, checkout, cancel, publish</td><td>Playwright (Chromium, WebKit, Firefox)</td><td>All green</td></tr>
+<tr><td>Mobile end-to-end</td><td>Same journeys plus offline, push deep links, upgrade prompt</td><td>Maestro on iOS + Android simulators (EAS)</td><td>All green on the release branch</td></tr>
+<tr><td>Visual (modes &amp; pairs)</td><td>8 key screens × 3 themes × 3 type pairs = 72 snapshots per platform; component catalog states</td><td>Playwright screenshots / Storybook + Chromatic-style diffs</td><td>Diffs reviewed and approved</td></tr>
+<tr><td>Accessibility</td><td>axe on every web e2e page; RN accessibility props lint; contrast tests on tokens for every theme</td><td>axe-core, eslint-plugin-react-native-a11y</td><td>Zero serious violations</td></tr>
+<tr><td>Performance</td><td>"Lamp wave" load, letter-page web vitals, bundle budgets</td><td>k6, Lighthouse CI</td><td>Budgets in §8.2</td></tr>
+<tr><td>Migration</td><td>Apply pending migrations to an anonymized production snapshot; time them; lint for locking</td><td>squawk + staging rehearsal</td><td>No exclusive lock over 2 s</td></tr>
+<tr><td>Failure / chaos</td><td>Duplicate and out-of-order webhooks, provider 500s and timeouts, Redis down, worker killed mid-job, DB failover</td><td>Fault injection in integration + staging game days (quarterly)</td><td>System converges, no double effects</td></tr>
+</tbody></table>
+
+<h2>7.2 Test data &amp; determinism</h2>
+<ul>
+<li><b>One seed set:</b> <code>db/seed/seed-content.json</code> (writers, letters, notebooks, issues) feeds local development, staging demos, end-to-end tests and the design canvas, so names and moods never diverge again.</li>
+<li>Factories in <code>@hs/test-kit</code> build valid aggregates by default (<code>aWriter().approved().withPatrons(3)</code>).</li>
+<li>Time is always injected. Tests run in random time zones (<code>TZ</code> randomized per CI shard) to catch hidden local-time assumptions.</li>
+<li>External gateways have in-memory fakes that implement the same port, plus a "chaos" mode (delays, duplicates, reordering).</li>
+</ul>
+
+<h2>7.3 Critical scenario catalogue (excerpt)</h2>
+<table><thead><tr><th>ID</th><th>Scenario</th><th>Expected</th></tr></thead><tbody>
+<tr><td class="id">SC-01</td><td>Readers in Auckland (UTC+13) and Honolulu (UTC−10) on the same evening date</td><td>Both get that date's issue. Lock happened before Auckland's lamp time.</td></tr>
+<tr><td class="id">SC-02</td><td>Spring-forward day; fixed lamp time 02:30 is impossible (clamped range) / sunset during the DST gap</td><td>Valid lamp instant; one ration</td></tr>
+<tr><td class="id">SC-03</td><td>Two devices call <code>GET /tonight</code> at the same millisecond</td><td>The same ration ID; 5 slots; one <code>RationBuilt</code> event</td></tr>
+<tr><td class="id">SC-04</td><td>A writer withdraws a letter that is in 10,000 built rations</td><td>All unread slots replaced within 5 min; read slots tombstoned; no reader gets a duplicate writer</td></tr>
+<tr><td class="id">SC-05</td><td><code>invoice.paid</code> arrives before <code>customer.subscription.created</code></td><td>Processed in provider order; final state correct; no lost entitlement</td></tr>
+<tr><td class="id">SC-06</td><td>The same webhook delivered 5 times concurrently</td><td>One state change, one ledger transaction</td></tr>
+<tr><td class="id">SC-07</td><td>Refund after the month's payout</td><td>Negative writer balance; recovered next period; ledger balanced</td></tr>
+<tr><td class="id">SC-08</td><td>Visibility public→patron while the letter is in a scheduled issue</td><td><code>409 CONTENT_IN_ACTIVE_ISSUE</code></td></tr>
+<tr><td class="id">SC-09</td><td>Mood switch after reading 2 letters, one of which is a personal slot</td><td>Read slots and the personal slot kept; others rebuilt; a second switch is rejected</td></tr>
+<tr><td class="id">SC-10</td><td>App version n−3 calls the API</td><td><code>426</code> with upgrade link; n−2 works</td></tr>
+<tr><td class="id">SC-11</td><td>Logged-out visitor opens a shared patron-letter link</td><td>Preview only in HTML, OG image, JSON-LD and API; signed media URLs absent</td></tr>
+<tr><td class="id">SC-12</td><td>Kept line on a letter later edited, then withdrawn</td><td>Snapshot intact on the Shelf; card still renders from the snapshot</td></tr>
+<tr><td class="id">SC-13</td><td>Reader blocks a writer who is in tonight's ration and is their patron</td><td>Slot replaced; messages closed both ways; patronage intact with a prompt</td></tr>
+<tr><td class="id">SC-14</td><td>Writer suspended mid-cycle with 50 patrons in mixed currencies</td><td>Items paused; prorated credits per currency; ledger balanced per currency</td></tr>
+<tr><td class="id">SC-15</td><td>Account deletion with active patronages, an open report and messages</td><td>Billing stopped at once; purge at 30 days; report retains pseudonymized references</td></tr>
+<tr><td class="id">SC-16</td><td>Paper theme + all_serif saved on web, then mobile cold start offline</td><td>Mobile renders cached preferences; reconciles on reconnect; no flash on web server render</td></tr>
+<tr><td class="id">SC-17</td><td>Search for a phrase that appears only in a patron letter's body</td><td>No result</td></tr>
+<tr><td class="id">SC-18</td><td>Self-harm content note</td><td>Interstitial once per reader per letter on web and mobile</td></tr>
+<tr><td class="id">SC-19</td><td>Payout account restricted on the 5th</td><td>Payout skipped; balance carried; notice sent; retried next run</td></tr>
+<tr><td class="id">SC-20</td><td>Reader in quiet hours when the lamp-lit push would fire</td><td>Push deferred or dropped per BR-NO-02; no violation</td></tr>
+</tbody></table>
+
+<h2>7.4 CI quality gates (pull request)</h2>
+<ol>
+<li>Typecheck · lint (including boundaries, no-Date in domain, copy voice lint) · format</li>
+<li>Unit + property + integration tests (sharded, random time zone)</li>
+<li>Generated contracts committed · <code>openapi-diff</code> clean · event schema compatibility</li>
+<li>Route policy test · IDOR suite · leak scanner · secret scan · dependency and license audit</li>
+<li>Migration lint (squawk) · module graph check · rule traceability report (rules without tests are listed; INV-* without a test fails the build)</li>
+<li>Web: build, bundle budgets, Lighthouse CI on reader pages, Playwright smoke + visual diffs</li>
+<li>CODEOWNERS approval (two approvals for <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, policies, migrations, infrastructure)</li>
+</ol>
+<div class="box"><h4>Definition of done</h4><p>Rule IDs referenced · tests at the right layers (including a negative authorization test) · scenario added if the change touches a feature boundary · docs updated (module README, rule index, handbook if a rule changed, ADR if a decision changed) · flags have an owner and expiry · observability (log/metric) for new background behavior · works in all 3 themes and 3 type pairs · accessible.</p></div>
+
+<h2 class="chapter">8.1 Workload model</h2>
+<table><thead><tr><th>Quantity</th><th>M12 (brief targets)</th><th>Planning ×10 (≈ year 3)</th></tr></thead><tbody>
+<tr><td>Monthly active readers</td><td>60,000</td><td>600,000</td></tr>
+<tr><td>Daily active readers (≈40%)</td><td>24,000</td><td>240,000</td></tr>
+<tr><td>Peak concurrent readers (largest time-zone cluster, 30 min after lamp)</td><td>≈5,000</td><td>≈50,000</td></tr>
+<tr><td>Ration builds at peak</td><td>≈3/s</td><td>≈30/s</td></tr>
+<tr><td>Reading heartbeats (every 15 s, batched)</td><td>≈330/s</td><td>≈3,300/s</td></tr>
+<tr><td>Other API calls at peak</td><td>≈100/s</td><td>≈1,000/s</td></tr>
+<tr><td>Letters stored</td><td>≈60k</td><td>≈1M</td></tr>
+<tr><td>Reaction rows / year</td><td>≈20M</td><td>≈200M</td></tr>
+<tr><td>Charges / month</td><td>≈11k (bundled)</td><td>≈110k</td></tr>
+</tbody></table>
+<p>The heaviest path is reading heartbeats, not content. Lamp waves are spread out by time zones, so global peaks stay modest. One API cluster and one Postgres primary comfortably handle M12. The ×10 scenario needs read replicas, partitioning of high-volume tables, and heartbeat coalescing, not microservices.</p>
+
+<h2>8.2 Performance budgets</h2>
+<table><thead><tr><th>Metric</th><th>Budget</th><th>Measured by</th></tr></thead><tbody>
+<tr><td>API p95 / p99</td><td>Reads 200/500 ms · writes 400/800 ms</td><td>OpenTelemetry per route</td></tr>
+<tr><td><code>GET /tonight</code> p95 (including lazy build)</td><td>250 ms</td><td>Route metric + build histogram</td></tr>
+<tr><td>Letter page (anonymous, CDN)</td><td>TTFB &lt; 300 ms · LCP &lt; 2.5 s on 4G · CLS &lt; 0.05</td><td>Lighthouse CI, real-user monitoring</td></tr>
+<tr><td>Web JS per route</td><td>Reader &lt; 120 KB gzip · studio editor &lt; 350 KB</td><td>Bundle budgets in CI</td></tr>
+<tr><td>Mobile</td><td>Cold start &lt; 2 s (mid-range Android) · tonight from cache &lt; 300 ms</td><td>Release build profiling</td></tr>
+<tr><td>Async</td><td>Outbox lag p95 &lt; 5 s · webhook processed p95 &lt; 30 s · ration repair &lt; 5 min</td><td>Queue metrics</td></tr>
+<tr><td>Database</td><td>Primary CPU &lt; 60% at peak · no query &gt; 100 ms p95 on reader paths</td><td><code>pg_stat_statements</code></td></tr>
+</tbody></table>
+
+<h2>8.3 Design choices that scale</h2>
+<ul>
+<li><b>Stateless API and worker</b> containers scale horizontally (ECS autoscaling on CPU and request count; workers on queue depth).</li>
+<li><b>Lazy ration build</b> means we never compute rations for inactive readers. Eager prebuild runs only for push opt-ins.</li>
+<li><b>Anonymous traffic at the edge:</b> public pages are cached at the CDN, so a viral letter costs almost nothing at the origin.</li>
+<li><b>Counters off the hot path</b> (§3.9i). Heartbeats are coalesced on the client (send on interval or page-hide only) and written with a single upsert.</li>
+<li><b>Connection pooling:</b> RDS Proxy (transaction pooling) between tasks and Postgres. Pool size per task is tuned so that total connections stay under 70% of the database's <code>max_connections</code>.</li>
+<li><b>Read replica</b> for writer pages, search, studio analytics and console reports. Reader-own data (Shelf, Tonight) always reads from the primary (read-your-writes).</li>
+<li><b>Partitioning plan</b> (triggered at ≥50M rows or a slowing vacuum): monthly range partitions (pg_partman) for <code>reads</code>, <code>reactions</code> (by <code>created_at</code>), <code>ledger_entries</code>, <code>audit_log</code>, <code>outbox_events</code>, <code>notifications</code>.</li>
+<li><b>Fan-out on publish</b> (notifications to patrons and followers) is batched in jobs of 1,000 recipients with dedupe keys, never done in the request.</li>
+</ul>
+
+<h2>8.4 Scaling playbook (cheapest first)</h2>
+<table><thead><tr><th>Symptom</th><th>First measure</th><th>Then act (in order)</th></tr></thead><tbody>
+<tr><td>Slow reader endpoint</td><td>Trace + <code>pg_stat_statements</code></td><td>Fix the query or index → Redis cache with event invalidation → replica routing</td></tr>
+<tr><td>DB CPU high at lamp waves</td><td>Top queries by total time</td><td>Coalesce heartbeats → batch writes → larger instance → replica for reads → partition</td></tr>
+<tr><td>Queue backlog</td><td>Queue depth by job type</td><td>Scale workers → split noisy job types to dedicated workers → move the hot job type to SQS (ADR first)</td></tr>
+<tr><td>Search slow or irrelevant</td><td>Query latency, result-quality reviews</td><td>Tune weights and indexes → move to OpenSearch behind the <code>search</code> module port</td></tr>
+<tr><td>Storage cost growth</td><td>S3 inventory</td><td>Lifecycle rules → AVIF variants → purge orphaned media</td></tr>
+</tbody></table>
+<p><b>Extraction criteria</b> for turning a module into its own service (ADR required): a different scaling profile proven by metrics, <i>or</i> a different security or compliance boundary, <i>and</i> a stable public interface for 3+ months. Likely first candidates: <code>media</code>/card rendering (CPU-heavy) and <code>notifications</code> fan-out.</p>
+
+<h2>8.5 Cost guardrails</h2>
+<ul>
+<li>Monthly infrastructure budget alarms per environment (MVP production target: roughly $1.5–3k/month at M12 scale; staging ≤ 30% of production; previews auto-expire).</li>
+<li>Unit metric: infrastructure cost per monthly active reader, reviewed monthly. Investigate if it grows faster than MAU.</li>
+<li>No always-on resources without a tag for owner and cost center (Terraform-enforced).</li>
+</ul>
+
+<h2 class="chapter">9.1 Environments</h2>
+<table><thead><tr><th>Env</th><th>Purpose</th><th>Data</th><th>Integrations</th></tr></thead><tbody>
+<tr><td>Local</td><td>Development: <code>docker compose</code> with Postgres, Redis, MinIO, Mailpit; Stripe CLI for webhooks</td><td>Seed set</td><td>Stripe test mode, fake push</td></tr>
+<tr><td>Preview</td><td>Per-PR web deployment pointing at the dev API; console previews behind SSO</td><td>Dev data</td><td>Test modes</td></tr>
+<tr><td>Dev</td><td>Shared integration environment, deployed on every merge to <code>main</code></td><td>Seed + synthetic</td><td>Test modes</td></tr>
+<tr><td>Staging</td><td>Production-like; release candidates; migration rehearsal; load tests</td><td>Weekly anonymized production snapshot</td><td>Stripe test mode with test clocks</td></tr>
+<tr><td>Production</td><td>Multi-AZ, single region (us-east-1), cross-region backups</td><td>Real</td><td>Live</td></tr>
+</tbody></table>
+<p>All environments are created from the same Terraform modules. Configuration differences live only in per-environment variables, and every configuration key is declared and validated at boot (Zod), so missing configuration fails fast.</p>
+
+<h2>9.2 Delivery pipeline</h2>
+<ol>
+<li><b>Trunk-based development:</b> short-lived branches; <code>main</code> is always releasable. Unfinished work ships behind release flags.</li>
+<li>Merge → build images (api, worker, web, console, all tagged with the git SHA) → deploy to <b>dev</b> → smoke tests.</li>
+<li>Promote the same images to <b>staging</b>: migrations, end-to-end suite, nightly billing suite.</li>
+<li><b>Production promote</b> (manual approval, during business hours): run migrations (a separate task, <code>migrator</code> role) → blue/green deploy for api and web (CodeDeploy) with canary 10% for 10 min → automatic rollback on alarm (5xx rate, p95, error budget burn) → workers rolled after the API.</li>
+<li>Every deploy is recorded (SHA, migrations, flags changed) and annotated on dashboards.</li>
+</ol>
+
+<h2>9.3 Database migrations</h2>
+<ul>
+<li>Forward-only, numbered SQL files, reviewed by a CODEOWNER. Never edited once merged. Mistakes are fixed by a new migration.</li>
+<li><b>Expand/contract:</b> (1) add the new structure, nullable or with a default; (2) deploy code that writes both and reads the new one; (3) backfill with a resumable job; (4) enforce constraints (<code>NOT VALID</code> then <code>VALIDATE</code>); (5) remove the old structure ≥ 2 releases later, and only after the oldest supported mobile version no longer needs it.</li>
+<li>Every migration must be compatible with the currently running code (N−1). Session settings: <code>lock_timeout = '5s'</code>, <code>statement_timeout</code> appropriate to the change. Indexes are built <code>CONCURRENTLY</code>.</li>
+<li>squawk lint in CI. A timing rehearsal on staging snapshot data is required for any table over 1M rows.</li>
+</ul>
+
+<h2>9.4 Mobile releases</h2>
+<ul>
+<li>Weekly release train: branch cut Monday → QA (Maestro + manual exploratory) → submission Wednesday → staged rollout 10% → 50% → 100% over 3 days, watching crash-free sessions (≥ 99.5%).</li>
+<li>Over-the-air updates (EAS Update) only for JavaScript bug fixes compatible with the installed native build and within store policies. Never to change business behavior, which is server-side anyway.</li>
+<li>Version support: <code>bootstrap.minSupportedVersion</code>. Versions are supported for 90 days, then soft-prompted, then hard-blocked (<code>426</code>) only for security or breaking reasons.</li>
+<li>Kill switches (ops flags) for risky client features, e.g. <code>reader.save-as-card</code>, <code>mobile.offline-cache</code>.</li>
+</ul>
+
+<h2>9.5 Feature flags</h2>
+<table><thead><tr><th>Kind</th><th>Purpose</th><th>Lifecycle</th></tr></thead><tbody>
+<tr><td>Release</td><td>Ship dark, roll out gradually</td><td>Removed within 30 days of 100% (CI warns when past <code>expires_on</code>)</td></tr>
+<tr><td>Ops</td><td>Kill switches, degrade modes (e.g. "issue-only rations")</td><td>Permanent, reviewed quarterly</td></tr>
+<tr><td>Experiment</td><td>A/B tests (e.g. ration size 5 vs. 7, decision D5)</td><td>Ends with a decision record; code path removed</td></tr>
+</tbody></table>
+<p>Flags are evaluated on the server and delivered to clients already evaluated in <code>/me/bootstrap</code>. Flags never gate security or money correctness. Changes to flags are audited.</p>
+
+<h2>9.6 Backups &amp; disaster recovery</h2>
+<ul>
+<li>RDS: point-in-time recovery for 35 days. Daily snapshots copied cross-region, kept 90 days. Monthly snapshots kept 1 year. S3: versioning plus cross-region replication for media and exports. Redis is never authoritative.</li>
+<li><b>RPO 5 min · RTO 2 h.</b> A restore drill every quarter: restore to a fresh instance, run integrity checks (ledger balanced, row counts, a sample of letters rendered), record the time taken.</li>
+<li>A regional outage runbook exists: Terraform applies to the backup region, the restored snapshot is promoted, DNS fails over, provider webhook URLs are updated.</li>
+<li>Integrity jobs run nightly: ledger balance per currency, entitlement reconcile, charges ↔ Stripe reconcile, payouts ↔ transfers reconcile. Any drift pages finance and on-call.</li>
+</ul>
+
+<h2>9.7 Observability</h2>
+<table><thead><tr><th>Signal</th><th>Standard</th></tr></thead><tbody>
+<tr><td>Logs</td><td>Structured JSON (pino) with <code>requestId</code>, <code>traceId</code>, hashed <code>userId</code>, module, event. Redaction enforced. Retained 30 days hot, 1 year cold.</td></tr>
+<tr><td>Traces</td><td>OpenTelemetry from client request → API → DB → outbox → job (trace context carried in job metadata).</td></tr>
+<tr><td>Metrics</td><td>Requests, errors and duration per route; queue depth and lag per job; business metrics: rations built, evenings completed, read completions, checkouts started vs. succeeded, webhook lag, entitlement drift, payout success, reports by priority.</td></tr>
+<tr><td>Errors</td><td>Sentry on every client and service, with release tags and source maps. Personal data scrubbed.</td></tr>
+<tr><td>SLOs</td><td>Reader API availability 99.9% (lamp hours) · <code>/tonight</code> p95 &lt; 250 ms · webhook processing 99% &lt; 15 min · payout run completes by 12:00 UTC on the 5th. Error-budget policy: when 50% of the budget is burned, feature work is paused in favor of reliability.</td></tr>
+<tr><td>Alerts</td><td>Page only for SLO burn, invariant violations (INV-04/05/07/13), P0 report SLA risk, security signals. Everything else goes to tickets.</td></tr>
+</tbody></table>
+
+<h2>9.8 Incidents &amp; runbooks</h2>
+<p>Severity: <b>SEV1</b> data leak, money error or full outage · <b>SEV2</b> major feature down or SLO breach · <b>SEV3</b> degraded. On-call rotation with a primary and a secondary. The incident commander uses a status page and keeps a comms log. A blameless postmortem is written within 5 working days, with actions tracked to completion.</p>
+<table><thead><tr><th>Runbook</th><th>Key steps</th></tr></thead><tbody>
+<tr><td>Ration builds failing</td><td>Turn on the ops flag <code>ration.issue-only</code> (serve the issue without personal slots) → inspect the builder assertion logs → fix → backfill rations for affected readers</td></tr>
+<tr><td>Payment webhooks failing</td><td>Check signature and secret rotation → inbox backlog → replay dead letters (idempotent) → reconcile entitlements</td></tr>
+<tr><td>Payout run failure</td><td>Never re-run blindly: the idempotency keys protect it, but check the transfer status first → reconcile → re-run for failed writers only</td></tr>
+<tr><td>Suspected patron-content leak</td><td>SEV1 → identify the channel (scanner, logs) → purge CDN → hotfix the render path → assess scope → notify per legal</td></tr>
+<tr><td>Leaked secret</td><td>Rotate → revoke sessions or tokens as needed → audit access logs → postmortem</td></tr>
+<tr><td>Database failover / restore</td><td>Multi-AZ failover is automatic; monitor → if corruption, point-in-time restore to a new instance → integrity checks → cut over</td></tr>
+<tr><td>CSAM / imminent risk</td><td>Follow the legal runbook; P0 on-call moderator; evidence preservation</td></tr>
+<tr><td>Report brigading</td><td>Raise thresholds for the target, priority manual review, reporter reputation review</td></tr>
+</tbody></table>
+
+<h2 class="chapter">10.1 Documentation set</h2>
+<table><thead><tr><th>Doc</th><th>Location</th><th>Updated when</th></tr></thead><tbody>
+<tr><td>Business Brief</td><td><code>docs/brief.md</code> (+ PDF)</td><td>Product strategy or pricing changes</td></tr>
+<tr><td>Engineering Handbook (Parts 1–5)</td><td><code>docs/handbook/</code></td><td>Any rule, invariant, architecture or process change, in the same PR</td></tr>
+<tr><td>ADRs</td><td><code>docs/adr/NNNN-title.md</code></td><td>Any significant or hard-to-reverse decision</td></tr>
+<tr><td>Module READMEs</td><td><code>services/core/src/modules/*/README.md</code></td><td>Public interface, events or tables change (CI checks that the README changed when <code>index.ts</code> did)</td></tr>
+<tr><td>Rule index</td><td><code>docs/rule-index.md</code> (from Part 4 §4.4)</td><td>A rule's home changes</td></tr>
+<tr><td>API reference</td><td>Generated from OpenAPI</td><td>Automatically</td></tr>
+<tr><td>Module graph</td><td>Generated <code>docs/module-graph.md</code></td><td>Automatically; diff reviewed</td></tr>
+<tr><td>Runbooks</td><td><code>docs/runbooks/</code></td><td>After every incident and game day</td></tr>
+<tr><td>Design system</td><td>Design canvas + <code>packages/tokens</code></td><td>Token or component changes</td></tr>
+<tr><td>Glossary</td><td>Part 1 §1.1</td><td>A new domain term is introduced</td></tr>
+</tbody></table>
+
+<h2>10.2 Architecture Decision Records</h2>
+<p>Template: <i>Context · Decision · Alternatives considered · Consequences · Status (proposed / accepted / superseded by NNNN) · Review trigger</i>. ADRs are immutable once accepted. A change in direction is a new ADR that supersedes the old one.</p>
+<table><thead><tr><th>ADR</th><th>Decision</th></tr></thead><tbody>
+<tr><td>001</td><td>TypeScript monorepo (pnpm + Turborepo)</td></tr>
+<tr><td>002</td><td>Modular monolith with enforced module boundaries; criteria for extracting a service</td></tr>
+<tr><td>003</td><td>One versioned REST API for all clients; contracts in Zod → OpenAPI → generated clients</td></tr>
+<tr><td>004</td><td>PostgreSQL as system of record; Drizzle; forward-only SQL migrations</td></tr>
+<tr><td>005</td><td>Transactional outbox + pg-boss for async work; inbox table for webhooks</td></tr>
+<tr><td>006</td><td>Own identity module: passwordless, passkeys, web sessions + mobile JWT/refresh rotation</td></tr>
+<tr><td>007</td><td>Stripe Billing bundles (one subscription per reader per interval) + Connect Express payouts</td></tr>
+<tr><td>008</td><td>Entitlements table as the single access source, separate from patronages</td></tr>
+<tr><td>009</td><td>Double-entry, append-only ledger with integer minor units</td></tr>
+<tr><td>010</td><td>Lazy ration build with a unique (reader, evening date) constraint; deterministic builder</td></tr>
+<tr><td>011</td><td>No certificate pinning on mobile</td></tr>
+<tr><td>012</td><td>Expo / React Native for iOS + Android; TipTap editor shared through WebView</td></tr>
+<tr><td>013</td><td>Single design-token source generating web CSS + RN themes for 3 themes × 3 type pairs</td></tr>
+<tr><td>014</td><td>Sentence anchors: block IDs + sentence hashes + re-anchoring</td></tr>
+<tr><td>015</td><td>Postgres full-text search until measured need</td></tr>
+<tr><td>016</td><td>AWS ECS Fargate + RDS + Terraform; no Kubernetes</td></tr>
+<tr><td>017</td><td>Envelope encryption for private messages</td></tr>
+<tr><td>018</td><td>Web checkout as default for mobile; IAP as a future entitlement source</td></tr>
+<tr><td>019</td><td>Server-evaluated feature flags with kinds and expiry</td></tr>
+<tr><td>020</td><td>Counts only in writer views (separate DTOs), enforced by contract tests</td></tr>
+</tbody></table>
+
+<h2>10.3 Ownership</h2>
+<ul>
+<li><b>CODEOWNERS</b> maps every module, package, migration folder and infrastructure path to an owning person or team. Each module has a named owner, who keeps its README, tests and rule references healthy.</li>
+<li>Cross-cutting owners: Security (auth, policies, secrets), Platform (infrastructure, CI, observability), Finance engineering (billing, ledger, payouts), Design systems (tokens, UI packages, modes and pairs).</li>
+<li>High-risk paths require two approvals, one from the owner: <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, <code>*/domain/policies.ts</code>, <code>db/migrations/</code>, <code>infra/</code>, <code>packages/contracts/</code>.</li>
+</ul>
+
+<h2>10.4 Working conventions</h2>
+<ul>
+<li>Conventional Commits. PR titles reference the rule or ticket. The PR template asks: rule IDs touched · migration? (expand/contract step) · security checklist (Part 4 §6.11) · screenshots in 3 themes for UI changes · flags added (owner, expiry) · docs updated.</li>
+<li>Small PRs (aim for under 400 changed lines, excluding generated code). One module per PR unless an ADR covers the cross-module change.</li>
+<li>Reviews check: is the rule in its single home? Is there a test named after it? Could this break another feature? (Check the FX matrix.)</li>
+</ul>
+
+<h2>10.5 Changing a business rule safely</h2>
+<ol class="steps">
+<li>Update the rule in Part 1 (new rule, or a changed one with a revision note). Bump the handbook version.</li>
+<li>Find the rule's single home in the rule index. If the logic exists anywhere else, that's a bug: remove the duplicate first.</li>
+<li>Find tests by rule ID (<code>grep "BR-XX-NN"</code>). Change the tests first so they describe the new behavior.</li>
+<li>Check the feature interaction matrix and scenarios for rows involving the rule. Update or add FX/SC tests.</li>
+<li>Implement behind a release flag if the change is user-visible or touches money.</li>
+<li>Check API and event compatibility (additive only). Plan migrations with expand/contract.</li>
+<li>Ship to staging, run the scenario suite, roll out the flag gradually, monitor the metrics tied to the rule, then remove the flag.</li>
+</ol>
+
+<h2>10.6 Guardrails for AI agents and new contributors (<code>AGENTS.md</code>)</h2>
+<div class="box key">
+<h4>Read first</h4>
+<p>This handbook's Part 1 (rules and invariants), Part 4 §4.2–4.4 (module anatomy and rule index), the target module's README, and the relevant ADRs.</p>
+<h4>Always</h4>
+<ul>
+<li>Work inside one module unless the task names several. Put logic in the rule's single home.</li>
+<li>Reference rule IDs in code comments and test names. Add or update tests at the right layer, including negative authorization tests.</li>
+<li>Run before proposing changes: <code>pnpm typecheck &amp;&amp; pnpm lint &amp;&amp; pnpm test --filter &lt;module&gt; &amp;&amp; pnpm contracts:check</code>.</li>
+<li>Regenerate contracts when schemas change, and commit the generated files.</li>
+<li>Update the module README, the rule index and the handbook when behavior changes.</li>
+<li>State assumptions in the PR description. Ask when a rule is ambiguous; don't guess.</li>
+</ul>
+<h4>Never</h4>
+<ul>
+<li>Edit an applied migration, write <code>UPDATE</code>/<code>DELETE</code> against ledger, audit or append-only tables, or drop columns without the expand/contract plan.</li>
+<li>Add a route without a policy, return ORM rows directly, or add counts, legal identity or patron body to reader-facing DTOs.</li>
+<li>Duplicate a rule in a client or another module. Compute money with floats. Call <code>Date.now()</code> in domain code.</li>
+<li>Call external services inside a database transaction, or skip idempotency keys on money, message or report operations.</li>
+<li>Add a runtime dependency without the dependency checklist. Disable a lint rule, test or CI gate to get a build passing.</li>
+<li>Read production data or secrets. Agents work only with seed data and test-mode credentials.</li>
+</ul>
+<h4>Human approval is required for</h4>
+<p>Changes under <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, policies, migrations, <code>infra/</code>, <code>packages/contracts/</code>, and any change to Part 1 rules or invariants.</p>
+</div>
+
+<h2>10.7 Deprecation policy</h2>
+<table><thead><tr><th>Thing</th><th>Policy</th></tr></thead><tbody>
+<tr><td>API fields / endpoints</td><td>Mark deprecated in OpenAPI → <code>Deprecation</code> + <code>Sunset</code> headers → keep ≥ 6 months and until no supported app version uses them (measured by <code>X-Client</code>) → remove</td></tr>
+<tr><td>Events</td><td>New version published alongside the old one; consumers migrate; old version removed after 2 releases with zero consumers</td></tr>
+<tr><td>Flags</td><td>By <code>expires_on</code>; CI warns, then fails 30 days after expiry</td></tr>
+<tr><td>Modules / packages</td><td>ADR, migration plan, owner sign-off</td></tr>
+</tbody></table>
+
+<h2>10.8 Review cadence</h2>
+<ul>
+<li><b>Weekly:</b> error budget, invariant alerts, flag expiries.</li>
+<li><b>Monthly:</b> dependency health, cost per MAU, rule traceability report (rules without tests), open security findings.</li>
+<li><b>Quarterly:</b> architecture review (module graph, extraction candidates, ADR review triggers), access review (staff roles, IAM), restore drill, game day, handbook currency check.</li>
+<li><b>Yearly:</b> threat model refresh, penetration test, PCI SAQ-A, privacy review of data flows and processors.</li>
+</ul>
+<!--END-->
+</doc-page>
+<script src="doc-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,362 @@
+/* =========================================================
+   Vellum — design tokens
+   A late-night, literary writing platform.
+   Dark by default. Warm. Quiet. Built to read in.
+   ========================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400;1,9..144,500;1,9..144,600&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+  /* ============ COLOR — INK PALETTE (default: dim night) ============
+     Hue family: deep navy-violet (the page) + warm amber/wine (the lamp).
+     Every neutral has a slight warm bias — never cold blue-gray.
+     OKLCH for harmonious tone control.
+  */
+
+  /* Ink — backgrounds (deepest → lightest) */
+  --ink-1000: oklch(0.13 0.022 285);   /* deepest — modal scrim */
+  --ink-950:  oklch(0.165 0.022 285);  /* page bg */
+  --ink-900:  oklch(0.205 0.022 285);  /* surface raised */
+  --ink-800:  oklch(0.255 0.020 285);  /* card surface */
+  --ink-700:  oklch(0.32 0.018 285);   /* elevated chip / divider */
+  --ink-600:  oklch(0.42 0.015 285);   /* hairline strong */
+  --ink-500:  oklch(0.55 0.012 285);   /* subtle text */
+  --ink-400:  oklch(0.68 0.010 80);    /* muted text — drifts warm */
+  --ink-300:  oklch(0.80 0.012 75);    /* secondary text */
+  --ink-200:  oklch(0.88 0.014 72);    /* primary text */
+  --ink-100:  oklch(0.94 0.015 75);    /* hi-contrast text — vellum cream */
+  --ink-50:   oklch(0.97 0.012 78);    /* highlight */
+
+  /* Amber — the lamp. Warm, restrained. Single accent. */
+  --amber-50:  oklch(0.96 0.025 75);
+  --amber-100: oklch(0.92 0.045 70);
+  --amber-200: oklch(0.85 0.080 65);
+  --amber-300: oklch(0.78 0.110 60);
+  --amber-400: oklch(0.72 0.135 55);
+  --amber-500: oklch(0.66 0.150 45);   /* primary accent — lamplight */
+  --amber-600: oklch(0.56 0.140 38);
+  --amber-700: oklch(0.46 0.120 32);
+  --amber-800: oklch(0.36 0.090 30);
+  --amber-900: oklch(0.26 0.060 30);
+
+  /* Wine — secondary accent, used for premium / patron marks */
+  --wine-100: oklch(0.85 0.040 15);
+  --wine-300: oklch(0.65 0.110 10);
+  --wine-500: oklch(0.50 0.130 10);
+  --wine-700: oklch(0.34 0.090 12);
+  --wine-900: oklch(0.22 0.055 14);
+
+  /* Mood swatches — used in mood-based discovery only */
+  --mood-tender:    oklch(0.78 0.075 25);   /* dusty rose */
+  --mood-restless:  oklch(0.72 0.135 55);   /* amber */
+  --mood-melancholy:oklch(0.65 0.060 250);  /* dim violet-blue */
+  --mood-still:     oklch(0.74 0.045 160);  /* sage */
+  --mood-burning:   oklch(0.62 0.165 25);   /* rust */
+  --mood-untethered:oklch(0.78 0.050 290);  /* lavender */
+
+  /* =============== SEMANTIC ROLES (default: dim) =============== */
+  --bg:            var(--ink-950);
+  --bg-raised:     var(--ink-900);
+  --bg-card:       var(--ink-900);
+  --bg-elevated:   var(--ink-800);
+  --bg-inverse:    var(--ink-100);
+  --bg-scrim:      oklch(0.10 0.022 285 / 0.78);
+
+  --fg:            var(--ink-100);
+  --fg-strong:     var(--ink-50);
+  --fg-muted:      var(--ink-300);
+  --fg-subtle:     var(--ink-400);
+  --fg-faint:      var(--ink-500);
+  --fg-disabled:   var(--ink-600);
+  --fg-inverse:    var(--ink-950);
+
+  --border:        oklch(0.32 0.018 285);
+  --border-strong: oklch(0.42 0.015 285);
+  --border-soft:   oklch(0.25 0.020 285);
+
+  --accent:        var(--amber-500);
+  --accent-soft:   var(--amber-900);
+  --accent-fg:     var(--ink-950);
+  --accent-hover:  var(--amber-400);
+
+  --premium:       var(--wine-500);
+  --premium-soft:  var(--wine-900);
+
+  /* =============== TYPE =============== */
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-body-serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-ui: "Inter Tight", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Modular scale, 1.2-ish, tuned for long-form reading */
+  --t-2xs:  0.6875rem;   /* 11 — micro labels */
+  --t-xs:   0.75rem;     /* 12 — caption */
+  --t-sm:   0.8125rem;   /* 13 — small ui */
+  --t-base: 0.9375rem;   /* 15 — default ui */
+  --t-md:   1.0625rem;   /* 17 — reading */
+  --t-lg:   1.1875rem;   /* 19 — reading lg */
+  --t-xl:   1.4375rem;   /* 23 */
+  --t-2xl:  1.75rem;     /* 28 */
+  --t-3xl:  2.25rem;     /* 36 */
+  --t-4xl:  3rem;        /* 48 */
+  --t-5xl:  4rem;        /* 64 */
+  --t-6xl:  5.5rem;      /* 88 */
+  --t-7xl:  7.5rem;      /* 120 */
+
+  --lh-tight:   1.05;
+  --lh-snug:    1.2;
+  --lh-normal:  1.45;
+  --lh-relaxed: 1.6;
+  --lh-loose:   1.8;       /* long-form reading default */
+
+  --tr-tightest: -0.035em;
+  --tr-tighter:  -0.022em;
+  --tr-tight:    -0.012em;
+  --tr-normal:   0;
+  --tr-wide:     0.04em;
+  --tr-caps:     0.18em;
+
+  /* =============== SPACE — 4px base =============== */
+  --s-0:  0;
+  --s-px: 1px;
+  --s-1:  0.25rem;
+  --s-2:  0.5rem;
+  --s-3:  0.75rem;
+  --s-4:  1rem;
+  --s-5:  1.5rem;
+  --s-6:  2rem;
+  --s-7:  2.5rem;
+  --s-8:  3rem;
+  --s-9:  4rem;
+  --s-10: 5rem;
+  --s-11: 6rem;
+  --s-12: 8rem;
+
+  /* Reading measure */
+  --measure-narrow: 38ch;
+  --measure:        62ch;
+  --measure-wide:   72ch;
+
+  /* =============== RADII =============== */
+  --r-xs:  3px;
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  20px;
+  --r-2xl: 28px;
+  --r-pill: 999px;
+
+  /* =============== SHADOWS — soft, warm-tinted =============== */
+  --shadow-xs: 0 1px 2px oklch(0.05 0.02 280 / 0.45);
+  --shadow-sm: 0 2px 6px oklch(0.05 0.02 280 / 0.45);
+  --shadow-md: 0 8px 24px oklch(0.05 0.02 280 / 0.5);
+  --shadow-lg: 0 20px 50px oklch(0.05 0.02 280 / 0.55);
+  --shadow-glow: 0 0 28px oklch(0.66 0.150 45 / 0.18);
+
+  /* =============== MOTION =============== */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.2, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.4, 0.6, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 360ms;
+  --dur-4: 600ms;
+
+  /* =============== Z =============== */
+  --z-nav:    10;
+  --z-sticky: 20;
+  --z-modal:  40;
+  --z-toast:  60;
+}
+
+/* =============== LIGHT THEME (paper) — toggleable =============== */
+[data-theme="paper"] {
+  --bg:          oklch(0.97 0.012 78);
+  --bg-raised:   oklch(0.945 0.015 78);
+  --bg-card:     oklch(0.99 0.008 80);
+  --bg-elevated: oklch(0.93 0.018 75);
+  --bg-scrim:    oklch(0.20 0.020 80 / 0.45);
+
+  --fg:          oklch(0.20 0.020 80);
+  --fg-strong:   oklch(0.13 0.022 75);
+  --fg-muted:    oklch(0.38 0.020 75);
+  --fg-subtle:   oklch(0.50 0.018 75);
+  --fg-faint:    oklch(0.62 0.015 75);
+  --fg-disabled: oklch(0.75 0.012 75);
+  --fg-inverse:  oklch(0.97 0.012 78);
+
+  --border:        oklch(0.85 0.015 75);
+  --border-strong: oklch(0.75 0.018 75);
+  --border-soft:   oklch(0.92 0.012 75);
+
+  --accent-soft:   oklch(0.92 0.045 70);
+  --accent-fg:     oklch(0.97 0.012 78);
+}
+
+/* =============== DUSK THEME (warmer dim) =============== */
+[data-theme="dusk"] {
+  --bg:          oklch(0.18 0.040 35);
+  --bg-raised:   oklch(0.22 0.045 35);
+  --bg-card:     oklch(0.215 0.045 35);
+  --bg-elevated: oklch(0.27 0.045 35);
+  --border:      oklch(0.34 0.035 35);
+  --border-soft: oklch(0.27 0.040 35);
+}
+
+/* =============== BASE =============== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--t-base);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--amber-700); color: var(--ink-50); }
+
+/* =============== TYPE STYLES =============== */
+.eyebrow {
+  font-family: var(--font-ui);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-caps);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+.title-hero {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(var(--t-4xl), 8vw, var(--t-7xl));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tightest);
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+  color: var(--fg-strong);
+}
+.title-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(var(--t-2xl), 4vw, var(--t-5xl));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tighter);
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+  color: var(--fg-strong);
+}
+.title-lg {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--t-2xl);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-tight);
+  color: var(--fg-strong);
+}
+.title-md {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--t-xl);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-tight);
+  color: var(--fg-strong);
+}
+.title-sm {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--t-lg);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+.body-reading {
+  font-family: var(--font-body-serif);
+  font-weight: 400;
+  font-size: var(--t-md);
+  line-height: var(--lh-loose);
+  font-variation-settings: "opsz" 24;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.body-ui {
+  font-family: var(--font-ui);
+  font-size: var(--t-base);
+  line-height: var(--lh-relaxed);
+  color: var(--fg-muted);
+}
+.body-sm {
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  color: var(--fg-muted);
+}
+.caption {
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  line-height: var(--lh-normal);
+  color: var(--fg-subtle);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.02em;
+  color: var(--fg-subtle);
+  text-transform: uppercase;
+}
+.mono-num {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+}
+
+/* Italic display variant */
+.italic-display {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+/* Drop cap utility for reading */
+.dropcap::first-letter {
+  font-family: var(--font-display);
+  font-weight: 500;
+  float: left;
+  font-size: 4.4em;
+  line-height: 0.85;
+  padding: 0.08em 0.10em 0 0;
+  margin-right: 0.04em;
+  color: var(--accent);
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+}
+
+/* Pull quote */
+.pullquote {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(var(--t-xl), 3.2vw, var(--t-3xl));
+  line-height: 1.25;
+  letter-spacing: var(--tr-tight);
+  color: var(--fg-strong);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+/* Hairlines + utility */
+.divider { height: 1px; background: var(--border); width: 100%; }
+.divider-strong { height: 1px; background: var(--border-strong); width: 100%; }
+
+/* No scrollbar style for inner devices */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Soft glow for amber */
+.lamp-glow {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 32px oklch(0.66 0.15 45 / 0.25);
+}
+
+/* The "quill" — small mark used in lieu of bullets */
+.quill::before {
+  content: "❦";
+  color: var(--accent);
+  margin-right: 0.4em;
+  font-family: var(--font-display);
+}

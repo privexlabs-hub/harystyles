@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — letters platform</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { background: oklch(0.13 0.022 285); margin: 0; }
+
+  /* iOS device shell */
+  .device-shell {
+    position: relative;
+    width: 390px; height: 800px;
+    border-radius: 44px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 0 1px oklch(0.32 0.018 285);
+    border: 8px solid oklch(0.10 0.022 285);
+  }
+  .device-screen {
+    position: absolute; inset: 0;
+    overflow-y: auto; overflow-x: hidden;
+    background: var(--bg);
+  }
+  .device-screen::-webkit-scrollbar { display: none; }
+  .device-screen { scrollbar-width: none; }
+
+  /* Android shell — squarer */
+  .android-shell {
+    position: relative;
+    width: 380px; height: 800px;
+    border-radius: 28px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+    border: 6px solid oklch(0.08 0.020 285);
+  }
+
+  /* Browser shell */
+  .browser-shell {
+    width: 1280px; height: 820px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+    border: 1px solid var(--border-soft);
+    display: flex; flex-direction: column;
+  }
+  .browser-chrome {
+    height: 40px; flex-shrink: 0;
+    background: oklch(0.10 0.020 285);
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+  }
+  .browser-dot { width: 11px; height: 11px; border-radius: 999px; }
+  .browser-url {
+    flex: 1; height: 24px; padding: 0 12px;
+    background: oklch(0.18 0.020 285); border-radius: 6px;
+    color: var(--fg-faint); font-family: var(--font-mono); font-size: 11px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .browser-body { flex: 1; overflow: auto; }
+
+  /* Page artboard wrapper */
+  .docpage {
+    width: 1080px; min-height: 100%;
+    background: var(--bg); color: var(--fg);
+  }
+
+  @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+  const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "paper",
+    "fontPair": "all-serif",
+    "accentHue": 45
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<!-- Components shared across pages -->
+<script type="text/babel" src="components.jsx"></script>
+
+<!-- Screens -->
+<script type="text/babel" src="screens-mobile.jsx"></script>
+<script type="text/babel" src="screens-profile.jsx"></script>
+<script type="text/babel" src="screens-tokens.jsx"></script>
+<script type="text/babel" src="screens-android.jsx"></script>
+<script type="text/babel" src="screens-web.jsx"></script>
+<script type="text/babel" src="screens-web-reader.jsx"></script>
+
+<!-- Documentation pages -->
+<script type="text/babel" src="page-brand.jsx"></script>
+<script type="text/babel" src="page-type.jsx"></script>
+<script type="text/babel" src="page-color.jsx"></script>
+<script type="text/babel" src="page-spacing.jsx"></script>
+<script type="text/babel" src="page-components.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+function ReaderFlow() {
+  const [stage, setStage] = useState("tonight");
+  const [piece, setPiece] = useState(window.PIECES[0]);
+
+  if (stage === "tonight") return <ScreenTonight onOpen={(p) => { setPiece(p); setStage("read"); }}/>;
+  if (stage === "read")    return <ScreenReader piece={piece} onBack={() => setStage("tonight")} onPaywall={() => setStage("patron")}/>;
+  if (stage === "patron")  return <ScreenPatron onClose={() => setStage("read")}/>;
+  return null;
+}
+
+function DeviceShell({ children, kind = "ios" }) {
+  return (
+    <div className={kind === "android" ? "android-shell" : "device-shell"}>
+      <div className="device-screen">{children}</div>
+    </div>
+  );
+}
+
+function BrowserShell({ children, url = "harystyles.com" }) {
+  return (
+    <div className="browser-shell">
+      <div className="browser-chrome">
+        <span style={{ display: "flex", gap: 7 }}>
+          <span className="browser-dot" style={{ background: "#ff5f57" }}/>
+          <span className="browser-dot" style={{ background: "#febc2e" }}/>
+          <span className="browser-dot" style={{ background: "#28c840" }}/>
+        </span>
+        <div className="browser-url">
+          <span style={{ opacity: 0.5 }}>◐</span>{url}
+        </div>
+      </div>
+      <div className="browser-body">{children}</div>
+    </div>
+  );
+}
+
+function App() {
+  const [tweaks, setTweak] = window.useTweaks
+    ? window.useTweaks(TWEAKS_DEFAULTS)
+    : [TWEAKS_DEFAULTS, () => {}];
+
+  useEffect(() => {
+    if (tweaks.theme === "ink") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", tweaks.theme);
+    }
+    const root = document.documentElement.style;
+    if (tweaks.fontPair === "fraunces-inter") {
+      root.setProperty("--font-display", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-body-serif", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-ui", '"Inter Tight", system-ui, sans-serif');
+    } else if (tweaks.fontPair === "all-mono") {
+      root.setProperty("--font-display", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-body-serif", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-ui", '"JetBrains Mono", monospace');
+    } else if (tweaks.fontPair === "all-serif") {
+      root.setProperty("--font-display", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-body-serif", '"Fraunces", Georgia, serif');
+      root.setProperty("--font-ui", '"Fraunces", Georgia, serif');
+    }
+  }, [tweaks.theme, tweaks.fontPair]);
+
+  return (
+    <>
+      <DesignCanvas>
+        {/* SECTION 1 — Brand foundations */}
+        <DCSection id="brand" title="01 · Brand" subtitle="Voice, lockups, iconography, the words we use — and the ones we don't.">
+          <DCArtboard id="brand-page" label="Brand foundation" width={1080} height={1900}>
+            <div className="docpage"><PageBrand/></div>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 2 — Type */}
+        <DCSection id="type" title="02 · Type" subtitle="Three families. Fraunces (display + reading), Inter Tight (UI), JetBrains Mono (metadata).">
+          <DCArtboard id="type-page" label="Type system" width={1080} height={2400}>
+            <div className="docpage"><PageType/></div>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 3 — Color */}
+        <DCSection id="color" title="03 · Color" subtitle="OKLCH ink palette with a single warm amber accent. Mood swatches for discovery only.">
+          <DCArtboard id="color-page" label="Color system" width={1080} height={1900}>
+            <div className="docpage"><PageColor/></div>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 4 — Spacing / Radii / Shadows / Motion */}
+        <DCSection id="spacing" title="04 · Spacing · Radii · Shadows · Motion" subtitle="Quiet rules for generous, unhurried space.">
+          <DCArtboard id="spacing-page" label="Spacing & motion" width={1080} height={1700}>
+            <div className="docpage"><PageSpacing/></div>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 5 — Components */}
+        <DCSection id="components" title="05 · Components" subtitle="Buttons, cards, badges, inputs, menus, toasts, modals — every piece in isolation.">
+          <DCArtboard id="components-page" label="Components catalog" width={1080} height={2200}>
+            <div className="docpage"><PageComponents/></div>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 6 — iOS reader flow */}
+        <DCSection id="ios" title="06 · iOS · Reader flow" subtitle="Mobile-first. Tonight → Moods → Read → Patron. The whole loop, in five frames.">
+          <DCArtboard id="tonight" label="Tonight — daily ration of 5" width={406} height={816}>
+            <DeviceShell><ScreenTonight/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="moods" label="Moods — read by feeling" width={406} height={816}>
+            <DeviceShell><ScreenMoods/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="reader" label="Reading — soft fade paywall" width={406} height={816}>
+            <DeviceShell><ScreenReader piece={window.PIECES[0]}/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="patron" label="Patron — not a paywall" width={406} height={816}>
+            <DeviceShell><ScreenPatron/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="proto-1" label="Live prototype — tap to advance" width={406} height={816}>
+            <DeviceShell><ReaderFlow/></DeviceShell>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 7 — Identity */}
+        <DCSection id="identity" title="07 · Writer identity" subtitle="Pen-name forward. A personal notebook, not a brand page. No follower counts.">
+          <DCArtboard id="profile" label="Ines Marlowe — profile" width={406} height={816}>
+            <DeviceShell><ScreenProfile/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="shelf" label="Your Shelf — kept lines" width={406} height={816}>
+            <DeviceShell><ScreenShelf/></DeviceShell>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 8 — Android */}
+        <DCSection id="android" title="08 · Android" subtitle="Material 3 in harystyles tokens. Same tone, different motion.">
+          <DCArtboard id="android-home" label="Tonight — Android" width={392} height={812}>
+            <DeviceShell kind="android"><AndroidHome/></DeviceShell>
+          </DCArtboard>
+          <DCArtboard id="android-editor" label="Editor — Android" width={392} height={812}>
+            <DeviceShell kind="android"><AndroidEditor/></DeviceShell>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 9 — Web reader app (the reader-side product) */}
+        <DCSection id="web-reader" title="09 · Web · Reader app" subtitle="The reading experience on desktop. Distinct from the writer's studio. Tonight → Moods → Reader → Writer → Shelf.">
+          <DCArtboard id="web-tonight" label="Tonight — daily ration of 5" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/tonight"><WebTonight/></BrowserShell>
+          </DCArtboard>
+          <DCArtboard id="web-moods" label="Moods — read by feeling" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/moods"><WebMoods/></BrowserShell>
+          </DCArtboard>
+          <DCArtboard id="web-reader-view" label="Reading — soft fade paywall" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/ines/on-the-small-grief"><WebReader/></BrowserShell>
+          </DCArtboard>
+          <DCArtboard id="web-writer" label="Writer page — Ines Marlowe" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/ines"><WebWriter/></BrowserShell>
+          </DCArtboard>
+          <DCArtboard id="web-shelf" label="Your shelf — kept lines" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/shelf"><WebShelf/></BrowserShell>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 10 — Web / Studio (writer-side, distinct from reader app) */}
+        <DCSection id="web-studio" title="10 · Web · Writer studio" subtitle="The writer-side dashboard. Distinct from the reader app. No graphs — just the letters, the patrons, and the writing.">
+          <DCArtboard id="web-studio-board" label="Studio dashboard" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/studio"><WebStudio/></BrowserShell>
+          </DCArtboard>
+          <DCArtboard id="web-editor" label="Long-form editor" width={1280} height={820}>
+            <BrowserShell url="harystyles.com/studio/draft/on-the-small-grief"><WebEditor/></BrowserShell>
+          </DCArtboard>
+        </DCSection>
+
+        {/* SECTION 11 — Marketing */}
+        <DCSection id="marketing" title="11 · Web · Marketing" subtitle="The home page — quiet, literary, never shouting.">
+          <DCArtboard id="web-marketing" label="harystyles.com — landing" width={1280} height={2400}>
+            <BrowserShell url="harystyles.com"><WebMarketing/></BrowserShell>
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+
+      {/* TWEAKS */}
+      {window.TweaksPanel && (
+        <window.TweaksPanel title="Tweaks">
+          <window.TweakSection title="Theme">
+            <window.TweakRadio
+              label="Mood"
+              value={tweaks.theme}
+              onChange={(v) => setTweak("theme", v)}
+              options={[
+                { value: "ink", label: "Ink (default)" },
+                { value: "dusk", label: "Dusk (warm)" },
+                { value: "paper", label: "Paper (light)" },
+              ]}
+            />
+          </window.TweakSection>
+          <window.TweakSection title="Type pairing">
+            <window.TweakRadio
+              label="Pair"
+              value={tweaks.fontPair}
+              onChange={(v) => setTweak("fontPair", v)}
+              options={[
+                { value: "fraunces-inter", label: "Fraunces + Inter" },
+                { value: "all-mono", label: "Serif + Mono" },
+                { value: "all-serif", label: "All serif" },
+              ]}
+            />
+          </window.TweakSection>
+          <window.TweakSection title="About">
+            <p style={{ fontSize: 12, lineHeight: 1.5, color: "rgba(0,0,0,0.6)", margin: 0 }}>
+              harystyles is a literary writing platform. Drag artboards by their grip to reorder. Click the expand arrow to focus any frame fullscreen.
+            </p>
+          </window.TweakSection>
+        </window.TweaksPanel>
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(<App/>);
+</script>
+
+</body>
+</html>

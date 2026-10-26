@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — Business Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+doc-page:not(:defined){visibility:hidden}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+:root{--ink:#1f1a17;--muted:#5a514a;--faint:#8a8079;--rule:#e2d9cf;--soft:#f6f1ea;--amber:#b5541f;--wine:#8a2b3a}
+doc-page{font-family:"Inter Tight",system-ui,sans-serif;font-size:16px;line-height:1.62;color:var(--ink)}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:400;color:var(--ink);letter-spacing:-.015em}
+h1{font-size:46px;line-height:1.05;margin:0 0 10px}
+h1 em,h2 em{color:var(--amber)}
+h2{font-size:28px;line-height:1.15;margin:44px 0 12px;padding-top:14px;border-top:1px solid var(--rule)}
+h3{font-size:20px;font-weight:500;margin:26px 0 8px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--amber)}a:hover{color:var(--wine)}
+.eyebrow{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.lede{font-family:"Fraunces",Georgia,serif;font-style:italic;font-size:21px;line-height:1.45;color:var(--muted);margin:0 0 20px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:14px;color:var(--muted);padding:12px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-bottom:24px}
+.meta b{color:var(--ink);font-weight:600}
+.box{background:var(--soft);border:1px solid var(--rule);border-radius:10px;padding:18px 22px;margin:16px 0}
+.box.verdict{border-color:var(--amber)}
+.box h3{margin-top:0}
+.box,.card{break-inside:avoid}
+.tag{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;padding:2px 8px;border-radius:99px;border:1px solid currentColor;vertical-align:2px}
+.must{color:var(--wine)}.should{color:var(--amber)}.could{color:#4f6b58}
+table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:15px;line-height:1.45}
+th{text-align:left;font-weight:600;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1.5px solid var(--ink);padding:8px 10px 6px 0}
+td{border-bottom:1px solid var(--rule);padding:8px 10px 8px 0;vertical-align:top}
+td:first-child{font-weight:500}
+.caption{font-size:14px;color:var(--faint);margin:-8px 0 18px}
+.flow{counter-reset:s;list-style:none;padding:0}
+.flow>li{counter-increment:s;position:relative;padding-left:34px;margin-bottom:7px}
+.flow>li::before{content:counter(s);position:absolute;left:0;top:1px;width:22px;height:22px;border-radius:99px;background:var(--soft);border:1px solid var(--rule);font-size:12px;font-weight:600;display:grid;place-items:center;color:var(--amber)}
+.cols{column-count:2;column-gap:32px}
+.cols h3{break-after:avoid}
+.chapter{break-before:page}
+footer[slot="footer"]{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;color:var(--faint);display:flex;justify-content:space-between;padding-top:10px;border-top:1px solid var(--rule)}
+</style>
+</head>
+<body>
+<doc-page margin="0.75in">
+<footer slot="footer"><span>HARYSTYLES · BUSINESS BRIEF</span><span>CONFIDENTIAL · SEPT 2026 · v1.0</span></footer>
+
+<div class="eyebrow">Business brief · build-from-scratch edition</div>
+<h1>harystyles — <em>letters, not posts.</em></h1>
+<p class="lede">A quiet, patron-supported platform for emotional long-form writing. Five letters a night, found by mood, read by lamplight.</p>
+<div class="meta"><span><b>Surfaces</b> iOS · Android · Web reader · Web studio · Marketing site</span><span><b>Model</b> Free to read · $4/mo patronage per writer · tips</span><span><b>Status</b> Hi-fi design complete, pre-build</span></div>
+
+<div class="box verdict">
+<h3>First, your question: is the design, on its own, enough to build the product?</h3>
+<p><b>No.</b> The design canvas (brand, tokens, components, 16 product screens across iOS, Android and web) covers the <i>look</i> and the main reader loop. It is <b>not enough</b> to build from scratch. I audited it and found:</p>
+<ul>
+<li><b>9 contradictions</b> between the design principles and the screens (for example, "no follower counts" next to a public "412 patrons" label). Resolved in §14.</li>
+<li><b>A unit-economics flaw:</b> charging $4 as its own card transaction costs about 10.4% in card fees, more than the 10% platform take. Resolved in §5.</li>
+<li><b>A naming risk:</b> "harystyles" is phonetically identical to a globally famous recording artist. Needs legal clearance before any spend on brand (§13).</li>
+<li><b>21 missing screens and systems</b>: onboarding and auth, checkout, the Letters inbox, search, settings, notifications, writer onboarding and payouts, the curator console, moderation, crisis-safety handling, and all empty, error and loading states.</li>
+<li><b>No written rules</b> for the core mechanic (when the ration unlocks, time zones, what "the lamp goes out" means, who picks the five letters).</li>
+</ul>
+<p style="margin:0"><b>This brief adds all of the above.</b> Each gap is marked <span class="tag must">MUST</span>, <span class="tag should">SHOULD</span> or <span class="tag could">COULD</span>. With this document plus the design canvas, a team can build the product. The only things left are the <b>12 business decisions in §15</b>, which only the owner can make. Each one has a default, so building doesn't have to wait on them.</p>
+</div>
+
+<h2>1 · Executive summary</h2>
+<p>Most writing platforms are built like social networks: infinite feeds, public like counts, follower numbers and engagement-tuned algorithms. That rewards volume and outrage, not depth. It pushes out the writing people most want late at night: slow, personal, emotionally honest letters.</p>
+<p>harystyles does the opposite. Each evening a reader gets a <b>ration of five letters</b>, chosen by human editors for the <b>mood</b> they are in. Once they are read, the app rests. There are no public likes or follower counts. Readers keep the lines that move them on a private shelf, and they can become a <b>patron</b> of a writer for $4 a month. About 90% of that goes to the writer.</p>
+<p><b>Target outcome for year one:</b> 1,500 paid writers, 60,000 monthly active readers, 18,000 active patronages, and about $78k in monthly patronage volume by month 12 (see §5 for assumptions).</p>
+
+<h2>2 · Problem &amp; opportunity</h2>
+<table><thead><tr><th>Who</th><th>Pain today</th><th>What harystyles offers</th></tr></thead><tbody>
+<tr><td>Readers</td><td>Doom-scrolling, too much choice, content that feels made for metrics. Nowhere to go for writing that "meets them" at night.</td><td>A finite, mood-matched issue each evening. It ends, and ending is part of the design.</td></tr>
+<tr><td>Writers</td><td>Newsletter tools reward growth hacking. Public counts shame small audiences. Personal writing under a real name feels exposed.</td><td>Pen names are welcome. There are no public counts. Patronage turns a small, devoted circle into income.</td></tr>
+<tr><td>Market</td><td>Newsletter and long-form platforms have shown that people will pay individual writers, but all of them compete on reach.</td><td>We compete on <i>feeling</i> and calm: a place people visit on purpose, not by reflex.</td></tr>
+</tbody></table>
+
+<h2>3 · Product principles (non-negotiable)</h2>
+<p>These come from the design canvas and govern every decision. If a feature breaks one, the feature changes.</p>
+<ol>
+<li><b>No infinite feed.</b> The home screen is five letters per evening. The archive can only be reached on purpose, through writer pages, notebooks and search. It is never a scrolling list.</li>
+<li><b>No public metrics.</b> Readers see no like, follower, patron or view counts. Writers see their own numbers, privately, in the Studio.</li>
+<li><b>Reactions belong to sentences.</b> There is no like button. Readers highlight a sentence and react with one of five glyphs: ❦ kept, ♡ tender, ✦ spark, ◐ staying, — held. Only the writer sees totals.</li>
+<li><b>Patronage, not paywall.</b> Locked text fades out softly. The copy says "support Ines", never "unlock".</li>
+<li><b>Pen names are first-class.</b> The public identity can be a pseudonym. The legal identity is only for payouts.</li>
+<li><b>Dark by default.</b> Themes are Ink (default), Dusk and Paper.</li>
+<li><b>Humans curate.</b> There is no engagement-tuned recommender. Personalization comes only from what the reader states: the mood they pick, and who they follow or support.</li>
+</ol>
+
+<h2>4 · Users &amp; roles</h2>
+<table><thead><tr><th>Role</th><th>Description</th><th>Primary jobs</th><th>Surfaces</th></tr></thead><tbody>
+<tr><td>Reader</td><td>Aged 22–45, reads on a phone at night, tired of feeds. Free account.</td><td>Pick a mood, read tonight's five, keep lines, follow writers</td><td>iOS, Android, Web reader</td></tr>
+<tr><td>Patron</td><td>A reader who pays $4/mo to one or more writers.</td><td>Read patron-only letters, get private letters, manage their patronages</td><td>Same, plus the Letters inbox</td></tr>
+<tr><td>Writer</td><td>Publishes under a real name or a pen name. Must be approved.</td><td>Write, publish, organize notebooks, see private stats, get paid</td><td>Web studio (primary), mobile editor (drafts)</td></tr>
+<tr><td>Curator <span class="tag must">MUST · NEW</span></td><td>Internal editor who builds each evening's rations.</td><td>Tag and verify moods, schedule rations, feature letters</td><td>Curator console (not designed yet, see §8.9)</td></tr>
+<tr><td>Trust &amp; Safety <span class="tag must">MUST · NEW</span></td><td>Internal moderator.</td><td>Review reports, handle crisis-sensitive content, apply sanctions</td><td>Moderation console (not designed yet)</td></tr>
+<tr><td>Admin / Finance</td><td>Internal.</td><td>Payouts, refunds, disputes, tax forms, feature flags</td><td>Admin console (off-the-shelf tools are fine)</td></tr>
+</tbody></table>
+
+<h3>Personas</h3>
+<div class="cols">
+<p><b>Maya, 29, reader.</b> A nurse on rotating shifts who reads in bed after 11pm. She wants something that feels like a letter from a friend, not a headline. <i>Success means</i> she finishes her five and feels calmer, not wired.</p>
+<p><b>"Ines Marlowe", 34, writer (pen name).</b> A translator who writes personal essays about moving between cities. She won't use her legal name. She has 400 devoted readers and wants $1–2k a month without growth hacking.</p>
+<p><b>Tomás, 41, patron.</b> Supports three writers. He wants to feel like a correspondent, not a customer. He values a yearly note back more than bonus content.</p>
+<p><b>Priya, curator.</b> A former literary magazine editor. She needs to tag, sequence and schedule 30 picks a day (6 moods × 5) in under two hours.</p>
+</div>
+
+<h2 class="chapter">5 · Business model &amp; unit economics</h2>
+<h3>Revenue streams</h3>
+<table><thead><tr><th>Stream</th><th>Price</th><th>Split</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Patronage</td><td>$4/mo per writer (MVP: fixed)</td><td>90% writer / 10% platform</td><td>Billed monthly or yearly ($40/yr, two months free)</td></tr>
+<tr><td>One-time tip</td><td>$3 · $7 · $15 · custom ($2–$200)</td><td>90 / 10</td><td>Also serves as the "not ready for monthly" path</td></tr>
+<tr><td>Gift patronage <span class="tag could">COULD</span></td><td>3 or 12 months</td><td>90 / 10</td><td>Phase 2</td></tr>
+</tbody></table>
+
+<div class="box"><h3>⚠ Fix required: card fees are larger than the take rate</h3>
+<p>A standalone $4 card charge costs about $0.42 (2.9% + $0.30), or 10.4%. The platform's 10% is $0.40, so <b>every single-writer patronage loses money</b>, and in-app purchase fees (15–30%) would make it far worse.</p>
+<p><b>Decision in this brief:</b></p>
+<ul style="margin:0">
+<li><b>Bundle billing.</b> Each reader gets <i>one</i> monthly charge covering all of their patronages. Three writers means one $12 charge, which cuts fees to about 5.4%.</li>
+<li><b>Writers get 90% of the net amount after card processing.</b> The wording "90% goes to the writer" stays, with a footnote: "after payment processing".</li>
+<li><b>Default to web checkout.</b> The mobile apps send patronage checkout to the web where store rules allow (reader-app and link-out rules). Otherwise, in-app prices go up to cover store fees.</li>
+<li>Minimum tip of $2. Tips are batched onto the next monthly charge where possible.</li>
+</ul></div>
+
+<h3>Year-one model (assumptions to validate)</h3>
+<table><thead><tr><th>Metric</th><th>M3</th><th>M6</th><th>M12</th></tr></thead><tbody>
+<tr><td>Approved writers (≥1 letter/month)</td><td>200</td><td>600</td><td>1,500</td></tr>
+<tr><td>Monthly active readers</td><td>8,000</td><td>25,000</td><td>60,000</td></tr>
+<tr><td>Reader → patron conversion</td><td>10%</td><td>14%</td><td>18%</td></tr>
+<tr><td>Avg. patronages per patron</td><td>1.4</td><td>1.6</td><td>1.8</td></tr>
+<tr><td>Active patronages</td><td>1,120</td><td>5,600</td><td>19,440</td></tr>
+<tr><td>Gross patronage volume / month</td><td>$4.5k</td><td>$22.4k</td><td>$77.8k</td></tr>
+<tr><td>Platform net (10% minus fee subsidy)</td><td>~$0.2k</td><td>~$1.3k</td><td>~$5.1k</td></tr>
+</tbody></table>
+<p class="caption">At a 10% take, the platform is not venture-scale from patronage alone. See §15, decision D2 (take rate) and D3 (reader membership).</p>
+
+<h2>6 · Platforms &amp; surfaces</h2>
+<table><thead><tr><th>Surface</th><th>Audience</th><th>Scope</th><th>Canvas section</th></tr></thead><tbody>
+<tr><td>iOS app</td><td>Readers, patrons</td><td>Full reader experience plus draft editing</td><td>06, 07</td></tr>
+<tr><td>Android app</td><td>Readers, patrons</td><td>Same as iOS, with Material 3 navigation and a writing button</td><td>08</td></tr>
+<tr><td>Web reader</td><td>Readers, patrons</td><td>Tonight, Moods, Reader, Writer page, Shelf. Every letter and writer page is SEO-indexable (public parts only)</td><td>09</td></tr>
+<tr><td>Web studio</td><td>Writers</td><td>Dashboard, editor, notebooks, patrons, earnings</td><td>10</td></tr>
+<tr><td>Marketing site</td><td>Prospects</td><td>Landing, manifesto, pricing, "write here" page</td><td>11</td></tr>
+<tr><td>Email <span class="tag must">MUST · NEW</span></td><td>Patrons, writers</td><td>Patron-only letters delivered by email (optional), receipts, payout notices</td><td>Not designed</td></tr>
+<tr><td>Internal consoles <span class="tag must">MUST · NEW</span></td><td>Curators, T&amp;S, finance</td><td>Curation, moderation, finance</td><td>Not designed</td></tr>
+</tbody></table>
+
+<h2>7 · Information architecture</h2>
+<table><thead><tr><th>Mobile tab</th><th>Web reader nav</th><th>Contains</th></tr></thead><tbody>
+<tr><td>Tonight</td><td>Tonight</td><td>Tonight's five letters, lamp status, mood switcher, "that's all for tonight" end state</td></tr>
+<tr><td>Moods</td><td>Moods</td><td>Six moods: Tender, Restless, Melancholy, Still, Burning, Untethered. Seven curated picks per mood</td></tr>
+<tr><td>Letters <span class="tag must">DEFINED HERE</span></td><td>(avatar menu)</td><td>Inbox of patron-only private letters, the writer's yearly reply, and your private replies to writers. It was an unexplained tab in the designs</td></tr>
+<tr><td>Shelf</td><td>Your shelf</td><td>Kept lines (quote cards), saved letters, the writers you support</td></tr>
+<tr><td>Me</td><td>Avatar menu</td><td>Profile, patronages and billing, theme, notifications, reading hours, account, help, "become a writer"</td></tr>
+</tbody></table>
+<p><b>Studio nav:</b> Letters · Drafts · Notebooks · Patrons · Earnings · Settings (profile, pen name, payout, tax).</p>
+
+<h2 class="chapter">8 · Core flows (step by step)</h2>
+
+<h3>8.1 Reader onboarding <span class="tag must">MUST · NEW</span></h3>
+<ol class="flow">
+<li>Landing or app first launch. Promise: "Five letters tonight. Then rest."</li>
+<li>Browse without an account. Tonight's public letters can be read; <b>an account is required</b> to keep lines, follow or support a writer.</li>
+<li>Sign up with Apple, Google or an email magic link. No passwords.</li>
+<li>"How do you usually arrive in the evening?" Pick one to three moods (sets the default ration).</li>
+<li>Reading hours: auto-detected sunset or a fixed time. Time zone comes from the device.</li>
+<li>Theme: Ink, Dusk or Paper. Optional: follow three writers suggested by the curators.</li>
+<li>Arrive on Tonight. If it's before the lamp time, show the "resting" state with a countdown, plus yesterday's unread letters.</li>
+</ol>
+
+<h3>8.2 Tonight ration (the core mechanic)</h3>
+<ul>
+<li><b>Unlock:</b> at the reader's local sunset (from time zone and approximate location). Fallback: 6:00pm local. The reader can pin a fixed time in settings.</li>
+<li><b>Contents:</b> five letters from the curator-built issue for the reader's chosen mood. Up to two slots go to letters from writers the reader follows or supports, if published in the last 48h. Never the same letter twice. Never two letters by the same writer.</li>
+<li><b>Mood switch:</b> allowed once per evening ("Not tender tonight?"). Switching swaps any unread slots.</li>
+<li><b>"The lamp goes out":</b> after all five are read, the Tonight tab shows the "That's all for tonight" state. Nothing is locked or removed: letters you've read stay on your history and shelf. The next issue replaces unread letters at the next lamp time.</li>
+<li><b>Daytime visitors</b> see the most recent issue. Readers never face an empty app.</li>
+<li><b>What counts as "read":</b> scrolling 80% of the letter, or at least 50% of the estimated reading time.</li>
+</ul>
+
+<h3>8.3 Reading &amp; sentence reactions</h3>
+<ol class="flow">
+<li>Open a letter. The header shows the writer, a progress bar and time left.</li>
+<li>Select text (long-press on mobile). A pill appears: five glyph reactions, <b>Keep line</b>, <b>Reply privately</b>, <b>Save as card</b>.</li>
+<li>Keeping a line saves it to the Shelf. Toast: "Kept. The line is on your shelf."</li>
+<li>A private reply is at most 1,000 characters and lands in the writer's Studio inbox. Writers can reply once; that reply shows up in the reader's Letters tab.</li>
+<li>End of the letter: follow, support, or "next in tonight". <b>There are no public comments.</b> This is a deliberate decision: comment sections contradict the quiet tone.</li>
+</ol>
+
+<h3>8.4 Patronage checkout <span class="tag must">MUST · NEW SCREENS</span></h3>
+<ol class="flow">
+<li>Trigger: the soft-fade card, the writer page button, or the Patron screen.</li>
+<li>Patron screen (designed): the offer, what patrons get, the one-time tip option.</li>
+<li>Checkout sheet (not designed): monthly or yearly, saved card, Apple Pay or Google Pay, a line showing the total bundled charge, tax.</li>
+<li>Confirmation (not designed): "You're now a patron of Ines. Welcome." The locked text fades in. A welcome note is queued for the Letters tab.</li>
+<li>Failure: "Your card didn't go through. Nothing was charged." Retry, or change the payment method.</li>
+</ol>
+
+<h3>8.5 Manage and cancel patronage <span class="tag must">MUST · NEW</span></h3>
+<p>Me → Patronages: a list of writers with renewal dates. Cancelling takes two taps and no guilt-trip. Access continues until the end of the paid period. An optional private note to the writer ("Why are you leaving?" is <i>not</i> asked). Failed renewals: three retries over seven days, then patron access pauses.</p>
+
+<h3>8.6 Writer application &amp; onboarding <span class="tag must">MUST · NEW</span></h3>
+<ol class="flow">
+<li>"Write here" page. Apply with a pen name, a short bio and two writing samples.</li>
+<li>Curator review within five working days: approve, waitlist, or decline with a kind note.</li>
+<li>Once approved: set up the Studio profile (pen name, one-line quote, location phrase, avatar or initial).</li>
+<li>Payout setup with a connected payments provider: legal identity, bank account, tax form. <b>The legal name is never shown publicly.</b></li>
+<li>First-letter guide: tips on voice and mood tagging. Publish.</li>
+</ol>
+
+<h3>8.7 Write &amp; publish</h3>
+<ol class="flow">
+<li>Studio → "Write a letter". Distraction-free editor (designed): title, subtitle, body. Formatting: bold, italic, quote, divider, highlight, image.</li>
+<li>Autosave every five seconds. Version history keeps the last 30 saves.</li>
+<li>Publish settings (not designed): primary mood (required, one of six), notebook (optional), visibility (Public or Patron-only), content note (optional, e.g. "grief", "self-harm mention"), email to patrons (yes/no), schedule.</li>
+<li>Public letters show the first 30% free, with the soft fade after that, if the writer turns on "preview for non-patrons". Otherwise they are fully free.</li>
+<li>After publishing, the letter goes into the curator queue for ration consideration. Writers can't pay for or ask for placement.</li>
+</ol>
+
+<h3>8.8 Earnings &amp; payouts</h3>
+<p>The Studio shows gross, fees, platform share and net, as private numbers. Payouts go monthly on the 5th, with a minimum balance of $10 (carried over otherwise). Refunds and chargebacks are taken off the next payout. Writers can download a yearly statement.</p>
+
+<h3>8.9 Curation (internal) <span class="tag must">MUST · NEW</span></h3>
+<ol class="flow">
+<li>Queue: newly published public letters, filtered by the writer's chosen mood.</li>
+<li>The curator confirms or re-tags the mood and flags content notes.</li>
+<li>They build an issue: five picks per mood per day. Tooling warns when a writer is over-represented (no writer more than twice a week per mood).</li>
+<li>Schedule issues up to 14 days ahead. A fallback "evergreen" issue auto-fills if a day isn't curated.</li>
+</ol>
+
+<h3>8.10 Report &amp; safety</h3>
+<p>Every letter has "Report this letter" in its menu. Reasons: harassment, plagiarism, hate, sexual content involving minors, self-harm promotion, spam, other. Reports go to the T&amp;S queue, with a 24h target (1h for child-safety and imminent-risk reports).</p>
+
+<h2 class="chapter">9 · Feature specification &amp; rules</h2>
+<table><thead><tr><th>Feature</th><th>Rule / spec</th><th>Priority</th></tr></thead><tbody>
+<tr><td>Moods</td><td>Six fixed moods, one primary per letter. Colors are only used in discovery (design tokens <code>--mood-*</code>)</td><td>MVP</td></tr>
+<tr><td>Reactions</td><td>5 glyphs, one per reader per sentence, can be undone. Totals are private to the writer</td><td>MVP</td></tr>
+<tr><td>Kept lines</td><td>Up to 500 characters each, unlimited count, exportable as a JSON or PDF shelf</td><td>MVP</td></tr>
+<tr><td>Save as card</td><td>Renders a 1080×1350 image: quote, writer's pen name, harystyles mark. Shareable</td><td>v1.1</td></tr>
+<tr><td>Follow</td><td>Free. Adds the writer's new letters as priority ration candidates. <b>"Follow" is the only name</b>; "Subscribe free" and "Follow for free" are retired</td><td>MVP</td></tr>
+<tr><td>Patron-only letters</td><td>Visible in writer lists with a lock. Soft fade for non-patrons</td><td>MVP</td></tr>
+<tr><td>Private letter to patrons</td><td>Writers are encouraged (not required) to send one a month. Delivered to Letters and by email</td><td>MVP</td></tr>
+<tr><td>Yearly reply</td><td>A patron can write once a year. The writer's reply is optional</td><td>v1.1</td></tr>
+<tr><td>Notebooks</td><td>Ordered series, tinted with a mood. A letter can belong to at most one notebook</td><td>MVP</td></tr>
+<tr><td>Search <span class="tag must">NEW</span></td><td>Search writers, letter titles and notebooks. No trending or "popular" sorting. Results are sorted by relevance, then by date</td><td>MVP</td></tr>
+<tr><td>Notifications <span class="tag must">NEW</span></td><td>Only three by default: lamp lit (optional, off by default), a new letter from a writer you support, a private reply. Never "you're missing out"</td><td>MVP</td></tr>
+<tr><td>Themes</td><td>Ink, Dusk, Paper. Follows the system setting unless changed. Can switch automatically by time of day</td><td>MVP</td></tr>
+<tr><td>Offline</td><td>Tonight's five are pre-downloaded on the mobile apps when the lamp is lit</td><td>v1.1</td></tr>
+<tr><td>Audio narration</td><td>Writer-recorded audio attached to a letter</td><td>Phase 2</td></tr>
+<tr><td>Localization</td><td>English at launch. Strings are built for translation from day one. Right-to-left layouts are not in MVP</td><td>MVP prep</td></tr>
+</tbody></table>
+
+<h3>Empty, loading &amp; error states <span class="tag must">MUST · NEW</span></h3>
+<table><thead><tr><th>Where</th><th>Copy (in the brand's voice)</th></tr></thead><tbody>
+<tr><td>Tonight, before lamp time</td><td>"The lamp isn't lit yet. Tonight's letters arrive at 7:12pm." Plus yesterday's unread letters</td></tr>
+<tr><td>Tonight, all read</td><td>"That's all for tonight. The lamp will be lit again at sunset." (designed)</td></tr>
+<tr><td>Shelf, empty</td><td>"Nothing kept yet. When a sentence stays with you, hold it here."</td></tr>
+<tr><td>Letters, empty</td><td>"No letters yet. Writers you support will write to you here."</td></tr>
+<tr><td>Offline</td><td>"You're offline. Tonight's letters are saved and waiting."</td></tr>
+<tr><td>Generic error</td><td>"Something went quiet on our side. Try again in a moment."</td></tr>
+<tr><td>Loading</td><td>A slow amber pulse on the lamp mark. No skeleton shimmer</td></tr>
+<tr><td>Writer, no letters</td><td>"Ines hasn't published yet. Follow to hear when she does."</td></tr>
+</tbody></table>
+
+<h2>10 · Content, safety &amp; trust</h2>
+<ul>
+<li><b>Crisis safety (<span class="tag must">MUST</span>).</b> Melancholy and grief are core moods, so letters with a self-harm content note show a gentle interstitial with local crisis-line resources. Private replies that mention imminent risk are escalated to T&amp;S within one hour.</li>
+<li><b>Content notes:</b> set by the writer, confirmed by the curator. Shown as a quiet line above the title.</li>
+<li><b>Community guidelines:</b> no harassment, hate, sexual content involving minors, plagiarism, or AI-generated letters passed off as human (letters must be disclosed as AI-assisted if they are).</li>
+<li><b>Pen-name integrity:</b> one verified legal identity per writer account, and no impersonating real people.</li>
+<li><b>Ownership:</b> writers keep copyright. harystyles gets a non-exclusive license to display and distribute. Writers can export everything and leave.</li>
+<li><b>Privacy:</b> reading history, kept lines and reactions are never sold, never used to train models and never shown to other readers. GDPR/CCPA export and deletion supported.</li>
+<li><b>Age:</b> 16+ (18+ for writers and for payouts).</li>
+</ul>
+
+<h2>11 · Design system summary</h2>
+<p>This is fully documented on the design canvas, sections 01–05. Engineers should treat <code>tokens.css</code> as the source of truth.</p>
+<table><thead><tr><th>Area</th><th>Decision</th></tr></thead><tbody>
+<tr><td>Type</td><td>Fraunces (display and reading), Inter Tight (UI), JetBrains Mono (metadata, uppercase, tracked). Reading body 17–19px, line-height 1.8, measure 62ch</td></tr>
+<tr><td>Color</td><td>OKLCH scales. Ink neutrals with a warm-violet tint; amber-500 as the single brand accent; wine for patron signals; six mood colors for discovery only</td></tr>
+<tr><td>Themes</td><td>Ink (default dark), Dusk (warm dark), Paper (light)</td></tr>
+<tr><td>Space / radius</td><td>4px base scale; radii 3–28px plus pill</td></tr>
+<tr><td>Motion</td><td>120 / 220 / 360 / 600ms. Default easing <code>cubic-bezier(.2,.7,.2,1)</code>. Honors reduced-motion settings</td></tr>
+<tr><td>Iconography</td><td>1.6px hairline icons. Reactions are typographic glyphs, not icons</td></tr>
+<tr><td>Voice</td><td>"Letters, not posts". Say patron, not subscriber; notebook, not collection; shelf, not library. Sentence case, no hype</td></tr>
+</tbody></table>
+
+<h3>Accessibility <span class="tag must">MUST · NEW</span></h3>
+<ul>
+<li>WCAG 2.2 AA. Several faint metadata labels in the current designs (<code>--fg-faint</code> at 9–10px) fail contrast. <b>Minimum metadata size is 11px, using <code>--fg-subtle</code> or stronger.</b></li>
+<li>Touch targets of at least 44×44 (some icon buttons in the designs are 28–36px and must grow).</li>
+<li>Dynamic type up to 200%. Reading view supports a font-size control (3 steps) and a dyslexia-friendly option.</li>
+<li>Screen readers: reaction glyphs have text labels ("Keep", "Tender"…). The mood picker has no color-only meaning.</li>
+<li>Selecting text for reactions also works by keyboard and switch control (a "React to paragraph" action in the paragraph menu).</li>
+</ul>
+
+<h2 class="chapter">12 · Technical architecture &amp; data model</h2>
+<h3>Recommended stack (swappable)</h3>
+<ul>
+<li><b>Clients:</b> native iOS (SwiftUI) and Android (Compose), or a shared React Native codebase. Web: a server-rendered React framework for SEO on letters and writer pages.</li>
+<li><b>Backend:</b> a Postgres-backed API. Object storage and CDN for images and cards. A job queue for lamp scheduling, emails and payouts.</li>
+<li><b>Payments:</b> a marketplace payments provider with connected accounts (writer KYC, split payouts, tax forms). Store billing only where it's required.</li>
+<li><b>Email:</b> transactional provider. Letter emails are rendered from the same content model.</li>
+<li><b>Editor:</b> a structured rich-text document model (blocks: paragraph, quote, divider, image, highlight) stored as JSON. Keep sentence-level anchors stable across edits for reactions.</li>
+</ul>
+
+<h3>Core entities</h3>
+<table><thead><tr><th>Entity</th><th>Key fields</th></tr></thead><tbody>
+<tr><td>User</td><td>id, email, auth providers, time zone, lamp mode (sunset/fixed), lamp time, preferred moods[], theme, roles[]</td></tr>
+<tr><td>WriterProfile</td><td>user id, pen name, slug, bio quote, location phrase, avatar, status (applied/approved/suspended), payout account id, tax status</td></tr>
+<tr><td>Letter</td><td>id, writer id, title, subtitle, body (JSON), primary mood, content notes[], visibility (public/patron), preview %, notebook id, order, status, published at, reading time</td></tr>
+<tr><td>Notebook</td><td>id, writer id, title, description, mood tint, order</td></tr>
+<tr><td>Issue</td><td>id, date, mood, curator id, letter ids[5], status (draft/scheduled/live/evergreen)</td></tr>
+<tr><td>Ration</td><td>user id, issue id, date, mood, slots[5] (letter id, source: issue/follow/patron), read at per slot, switched mood (bool)</td></tr>
+<tr><td>Reaction</td><td>user id, letter id, sentence anchor, glyph, created at</td></tr>
+<tr><td>KeptLine</td><td>user id, letter id, anchor range, text snapshot, created at</td></tr>
+<tr><td>Follow</td><td>reader id, writer id, created at</td></tr>
+<tr><td>Patronage</td><td>reader id, writer id, interval (month/year), price, status (active/past due/cancelled/paused), current period end</td></tr>
+<tr><td>Charge</td><td>reader id, bundled patronage ids[], tip ids[], amount, fee, tax, provider ref, status</td></tr>
+<tr><td>Tip</td><td>reader id, writer id, amount, charge id</td></tr>
+<tr><td>PrivateMessage</td><td>from, to, letter id (optional), kind (reply/welcome/yearly/patron letter), body, read at</td></tr>
+<tr><td>Payout</td><td>writer id, period, gross, fees, platform share, net, status</td></tr>
+<tr><td>Report</td><td>reporter id, target (letter/message/user), reason, notes, status, handler id, resolution</td></tr>
+</tbody></table>
+
+<h3>Key services &amp; jobs</h3>
+<ul>
+<li><b>Lamp scheduler:</b> every 15 minutes, compute which users' lamp time has passed and build their Ration. It must be idempotent.</li>
+<li><b>Ration builder:</b> takes the issue for the mood, adds up to two follow/patron slots, and removes duplicates, letters already read, and repeat writers.</li>
+<li><b>Billing cycle:</b> one bundled charge per reader per month, retry logic, and access gating by <code>current_period_end</code>.</li>
+<li><b>Payout run:</b> monthly on the 5th, with a ledger that reconciles to the payment provider.</li>
+</ul>
+<p><b>Non-functional targets:</b> a letter's content is visible in under 1.5s on 4G. 99.9% uptime at lamp hours (6–11pm local, all regions). Accounts are deleted within 30 days of a request.</p>
+
+<h2>13 · Go-to-market, metrics &amp; risks</h2>
+<h3>Launch phases</h3>
+<table><thead><tr><th>Phase</th><th>Scope</th><th>Exit criteria</th></tr></thead><tbody>
+<tr><td>0 · Founding writers (M0–2)</td><td>Invite 50 writers. Studio and web reader only. Invite-only readers</td><td>≥300 letters published, 3 weeks of issues scheduled</td></tr>
+<tr><td>1 · MVP public (M3)</td><td>Web reader, iOS, patronage, curation console, safety basics</td><td>7-day retention ≥35%, ≥8% reader→patron</td></tr>
+<tr><td>2 · Android + v1.1 (M5)</td><td>Android, cards, offline, yearly reply, writer applications open</td><td>≥500 writers, payouts running reliably</td></tr>
+<tr><td>3 · Depth (M9+)</td><td>Audio letters, gift patronage, localization</td><td>Set per decision D3</td></tr>
+</tbody></table>
+<p><b>Acquisition:</b> kept-line cards shared on social platforms (the built-in viral loop). Writers bring their own audiences (import tool for existing email lists). Partnerships with literary magazines and MFA programs. The manifesto as a launch essay.</p>
+
+<h3>Success metrics (no vanity metrics)</h3>
+<table><thead><tr><th>Metric</th><th>Definition</th><th>M12 target</th></tr></thead><tbody>
+<tr><td>North star: evenings completed</td><td>Rations where ≥3 of 5 letters were read, per week</td><td>90k/week</td></tr>
+<tr><td>Calm check</td><td>Occasional one-tap question: "How do you feel after tonight?"</td><td>≥70% "calmer"</td></tr>
+<tr><td>Patron retention</td><td>Patronages still active after 3 months</td><td>≥75%</td></tr>
+<tr><td>Writer income</td><td>Median monthly net for writers with ≥50 patrons</td><td>≥$150</td></tr>
+<tr><td>Writer retention</td><td>Writers publishing ≥1 letter a month</td><td>≥70%</td></tr>
+</tbody></table>
+<p>We deliberately do <b>not</b> optimize session length or daily opens beyond the ration.</p>
+
+<h3>Risks</h3>
+<table><thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead><tbody>
+<tr><td><b>Name conflict:</b> "harystyles" reads as a famous artist's name. Trademark, confusion and search risk</td><td>High</td><td>Trademark search and legal opinion <i>before</i> launch. Keep "Vellum" (the internal token name) as a fallback brand</td></tr>
+<tr><td>Payment fees exceed the take</td><td>High</td><td>Bundled billing, web checkout, net-of-fees split (§5)</td></tr>
+<tr><td>App store rules on digital goods</td><td>High</td><td>Link-out where it's allowed. Otherwise, store pricing covers the fees</td></tr>
+<tr><td>Curation doesn't scale</td><td>Med</td><td>Evergreen issues, tools that flag over-used writers, guest curators, plus a writer-picked mood as the baseline</td></tr>
+<tr><td>Crisis content harm</td><td>High</td><td>Content notes, interstitials, a 1h escalation path, T&amp;S training</td></tr>
+<tr><td>The ration feels too restrictive</td><td>Med</td><td>Archive reachable through writers and search. One mood switch per night. Test 5 against 7 letters</td></tr>
+<tr><td>Cold start for writers</td><td>Med</td><td>Founding writer stipends (e.g. $300/mo for 6 months, for 50 writers)</td></tr>
+</tbody></table>
+
+<h2 class="chapter">14 · Contradictions found in the current designs (and decisions)</h2>
+<p>These must be fixed in the design files before handing off to engineering.</p>
+<table><thead><tr><th>#</th><th>Where</th><th>Issue</th><th>Decision</th></tr></thead><tbody>
+<tr><td>1</td><td>iOS reader, iOS profile, Studio</td><td>"412 patrons" is shown to readers, which breaks "no public counts"</td><td>Readers see "a small circle of patrons". Counts appear only in the Studio</td></tr>
+<tr><td>2</td><td>Feed cards (iOS)</td><td>A heart icon with counts (412, 1,208…) is effectively a like button</td><td>Remove it. Show only a bookmark (save)</td></tr>
+<tr><td>3</td><td>Web writer page, web Tonight</td><td>Public "1,204 kept lines" and "1.2k kept lines"</td><td>Remove from public views. Keep in the Studio</td></tr>
+<tr><td>4</td><td>Web Tonight footer</td><td>"Browse everything ever written" link breaks "no infinite feed"</td><td>Replace with "Find a writer" (search). No global archive list</td></tr>
+<tr><td>5</td><td>Mobile vs web copy</td><td>"The app will close" vs "the lamp goes out at midnight"</td><td>Use one rule (§8.2): the next issue arrives at the next lamp time. Nothing closes or locks</td></tr>
+<tr><td>6</td><td>Studio stats</td><td>"$1,648 your share, after fees" is actually the <i>gross</i> (412 × $4). The sidebar says "$284"</td><td>Show gross $1,648 → net ≈ $1,390 after processing and the 10% share. Sidebar shows the same net</td></tr>
+<tr><td>7</td><td>Profile, marketing</td><td>"Follow", "Subscribe free" and "Follow for free" used for the same action</td><td>Use "Follow" everywhere</td></tr>
+<tr><td>8</td><td>Sample content</td><td>The same writers have different surnames: Daniyar Khan/Ahn, Marisol Cruz/Ortiz. Mood tags differ between screens</td><td>One seed-content file shared by every surface</td></tr>
+<tr><td>9</td><td>Mobile tab bar</td><td>The "Letters" tab has no designed screen</td><td>Define it as the private inbox (§7). Design it</td></tr>
+</tbody></table>
+
+<h3>Screens &amp; systems still to design (21)</h3>
+<div class="cols">
+<p><b>Reader (mobile + web):</b> welcome/sign-in · mood onboarding · reading hours · pre-lamp state · Letters inbox · letter thread · search · Me/settings · patronage management · checkout sheet · confirmation · cancel flow · notification settings · content-note interstitial · offline/error states.</p>
+<p><b>Writer:</b> application · approval/onboarding · payout setup · publish settings modal · private-reply inbox.</p>
+<p><b>Internal:</b> curator console (queue, issue builder, calendar) · moderation queue. Finance can use off-the-shelf admin tools.</p>
+<p><b>Email templates:</b> patron letter · receipt · payout · welcome.</p>
+</div>
+
+<h2>15 · Decisions only the owner can make</h2>
+<p>Each has a default so the build doesn't have to wait.</p>
+<table><thead><tr><th>#</th><th>Decision</th><th>Default in this brief</th></tr></thead><tbody>
+<tr><td>D1</td><td>Final brand name (legal clearance)</td><td>Keep "harystyles", pending a trademark opinion. Fallback: "Vellum"</td></tr>
+<tr><td>D2</td><td>Platform take rate</td><td>10% of net after processing. Revisit at M6</td></tr>
+<tr><td>D3</td><td>Reader membership (e.g. $5/mo for offline, audio, extra mood switches)</td><td>Not in MVP. Test in phase 3</td></tr>
+<tr><td>D4</td><td>Fixed vs. writer-set price</td><td>Fixed $4 in MVP. Writer-set $3–$10 in v1.1</td></tr>
+<tr><td>D5</td><td>Ration size</td><td>5, with an A/B test against 7 after launch</td></tr>
+<tr><td>D6</td><td>Public comments</td><td>None. Private replies only</td></tr>
+<tr><td>D7</td><td>Open vs. application-only writers</td><td>Application-only until M6</td></tr>
+<tr><td>D8</td><td>AI-assisted writing policy</td><td>Allowed if disclosed. Fully generated letters banned</td></tr>
+<tr><td>D9</td><td>Launch markets</td><td>US, UK, Canada, Ireland, Australia (English, USD/GBP/CAD/AUD)</td></tr>
+<tr><td>D10</td><td>Native vs. cross-platform apps</td><td>Cross-platform for MVP speed. Native reading view if performance requires it</td></tr>
+<tr><td>D11</td><td>Founding writer stipend budget</td><td>$90k (50 writers × $300 × 6 months)</td></tr>
+<tr><td>D12</td><td>Minimum age</td><td>16+ readers, 18+ writers</td></tr>
+</tbody></table>
+
+<h2>Appendix · Screen inventory (design canvas)</h2>
+<table><thead><tr><th>Section</th><th>Frames</th></tr></thead><tbody>
+<tr><td>01 Brand</td><td>Logo and lockups, voice and tone, words we use and don't, iconography, reaction glyphs</td></tr>
+<tr><td>02 Type</td><td>Families, display, reading, UI and mono scales, full specimen</td></tr>
+<tr><td>03 Color</td><td>Amber, wine, ink neutrals, semantic roles, moods, contrast pairings</td></tr>
+<tr><td>04 Spacing &amp; motion</td><td>Spacing, radii, shadows, durations, easing, reading measure</td></tr>
+<tr><td>05 Components</td><td>Buttons, badges, inputs, cards, tabs, menu, toasts, modal, avatars</td></tr>
+<tr><td>06 iOS reader</td><td>Tonight, Moods, Reader, Patron, live prototype</td></tr>
+<tr><td>07 Writer identity</td><td>Profile, Shelf</td></tr>
+<tr><td>08 Android</td><td>Tonight, Editor</td></tr>
+<tr><td>09 Web reader</td><td>Tonight, Moods, Reader, Writer page, Shelf</td></tr>
+<tr><td>10 Web studio</td><td>Dashboard, long-form editor</td></tr>
+<tr><td>11 Marketing</td><td>Hero, features, testimonial, pricing, footer</td></tr>
+</tbody></table>
+</doc-page>
+<script src="doc-page.js"></script>
+</body>
+</html>

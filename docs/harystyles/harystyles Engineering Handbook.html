@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — Engineering Handbook</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&amp;family=Inter+Tight:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<doc-page margin="0.75in">
+<footer slot="footer"><span>HARYSTYLES · ENGINEERING HANDBOOK</span><span>v1.0 · OCT 2026</span></footer>
+<div class="eyebrow">Engineering handbook · build-from-scratch edition</div>
+<h1>harystyles — <em>engineering handbook.</em></h1>
+<p class="lede">The rules, architecture, data model, code structure, security, quality, scale, operations and governance needed to build harystyles from scratch, so that changing one thing doesn't break five others.</p>
+<div class="meta"><span><b>Serves</b> Web reader · Web studio · Console · iOS · Android · Email</span><span><b>Companion to</b> Business Brief v1.0 + design canvas</span><span><b>Version</b> 1.0 · 22 Oct 2026</span></div>
+<div class="box key"><h4>The goal, in one line</h4><p>Not to predict every future requirement, but to make every rule live in exactly one place, every boundary explicit, every side effect idempotent and every decision recorded. That way the system can evolve without becoming fragile, expensive, insecure or hard to understand.</p></div>
+<h3>Contents</h3>
+<ul class="toc">
+<li><b>01</b>Product requirements &amp; business rules: Part 1</li>
+<li><b>02</b>System architecture: Part 2 §2.1–2.11</li>
+<li><b>03</b>Data modelling &amp; database design: Part 3</li>
+<li><b>04</b>Codebase &amp; folder structure: Part 4 §4.1–4.7</li>
+<li><b>05</b>Frameworks, tools &amp; dependencies: Part 2 §2.12</li>
+<li><b>06</b>Security &amp; permissions: Part 4 §6.1–6.11</li>
+<li><b>07</b>Testing &amp; quality control: Part 5 §7</li>
+<li><b>08</b>Scalability &amp; performance: Part 5 §8</li>
+<li><b>09</b>Deployment &amp; operations: Part 5 §9</li>
+<li><b>10</b>Documentation &amp; governance: Part 5 §10</li>
+</ul>
+<h3>How the handbook prevents the five classic failures</h3>
+<table><thead><tr><th>Failure</th><th>Prevented by</th></tr></thead><tbody>
+<tr><td>Duplicated business logic</td><td>Rule IDs (Part 1), the single-home rule index (Part 4 §4.4), server-authoritative responses (Part 2 §2.5), clients import enums but never rules</td></tr>
+<tr><td>Insecure endpoints</td><td>Deny-by-default route policies and the route-policy test, strict schemas in and out, IDOR and leak suites, rate limits, idempotency (Part 4 §6)</td></tr>
+<tr><td>Inconsistent data models</td><td>Ubiquitous language (Part 1 §1.1), one owning module per table, constraints in the database, one contracts package generating every client (Parts 3–4)</td></tr>
+<tr><td>Hidden dependencies</td><td>Enforced module boundaries and a generated dependency graph, ports and adapters for providers, explicit event catalogue (Parts 2 and 4)</td></tr>
+<tr><td>Features that break together</td><td>Feature interaction matrix FX-* (Part 1 §1.6) turned into a mandatory cross-feature scenario suite (Part 5 §7.3)</td></tr>
+</tbody></table>
+<section class="part">
+<div class="eyebrow">Engineering handbook · Part 1 of 5 · Area 1</div>
+<h1 class="part-title">Product requirements &amp; <em>business rules</em></h1>
+<p class="lede">What the system must do, who may do it, what must never happen, and how exceptions behave. Every other part of this handbook implements this one.</p>
+<div class="meta"><span><b>Owner</b> Product lead + Tech lead</span><span><b>Defines</b> BR-* rules · INV-* invariants · EX-* exceptions · FX-* interactions</span><span><b>Assumes</b> Business Brief v1.0, decisions D1–D12 at their defaults</span></div>
+
+<div class="box key"><h4>How to use these IDs</h4>
+<p>Every rule has a stable ID. Code that implements a rule references it in a comment, and tests reference it in their name, e.g. <code>describe("BR-RA-05 ration composition")</code>. If the code and this document disagree, one of them is wrong: fix both in the same pull request. <b>MUST</b>, <b>SHOULD</b> and <b>MAY</b> follow RFC 2119. Rule IDs are never reused. Retired rules are struck through, not deleted.</p></div>
+
+<h2>1.1 Ubiquitous language</h2>
+<p>These words mean exactly one thing in code, the database, the API, the UI and conversation. Using a synonym in code (<code>post</code>, <code>subscription</code>, <code>like</code>, <code>creator</code>) is a review blocker. The only exception is inside third-party adapter code, e.g. <code>stripe_subscription_id</code> in the billing infrastructure layer.</p>
+<table><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>
+<tr><td>Reader</td><td>Any signed-in user. Writers and staff are also readers.</td></tr>
+<tr><td>Writer</td><td>A reader with an <i>approved</i> writer profile. Publishes under a <b>pen name</b>.</td></tr>
+<tr><td>Patron</td><td>A reader with an active <b>patronage</b> to a specific writer. This is a relationship, <i>not a role</i>.</td></tr>
+<tr><td>Letter</td><td>A unit of writing. Has revisions, one primary mood, and a visibility (<code>public</code> or <code>patron</code>).</td></tr>
+<tr><td>Notebook</td><td>An ordered series of one writer's letters.</td></tr>
+<tr><td>Mood</td><td>One of six fixed values: <code>tender</code>, <code>restless</code>, <code>melancholy</code>, <code>still</code>, <code>burning</code>, <code>untethered</code>.</td></tr>
+<tr><td>Issue</td><td>The curated set of exactly 5 letters for one <b>evening date</b> and one mood.</td></tr>
+<tr><td>Ration</td><td>One reader's personal 5 letters for one evening date. Built from an issue plus personal slots. Unique per reader per evening date.</td></tr>
+<tr><td>Slot</td><td>One of the 5 positions in a ration.</td></tr>
+<tr><td>Lamp time</td><td>The moment a reader's new ration becomes available: local sunset, or a fixed time the reader chooses.</td></tr>
+<tr><td>Evening date</td><td>The local calendar date of the lamp time that opened the current ration. It runs from lamp time on day D until lamp time on day D+1.</td></tr>
+<tr><td>Reaction</td><td>A reader's glyph on one sentence: <code>kept</code> ❦, <code>tender</code> ♡, <code>spark</code> ✦, <code>staying</code> ◐, <code>held</code> —.</td></tr>
+<tr><td>Anchor</td><td>A stable identifier for a sentence inside a letter. It survives edits where possible.</td></tr>
+<tr><td>Kept line</td><td>A passage (up to 500 characters) a reader saved to their Shelf. Stores a text snapshot.</td></tr>
+<tr><td>Card</td><td>A rendered shareable image of a kept line.</td></tr>
+<tr><td>Thread / Message</td><td>Private correspondence between one reader and one writer. Kinds: <code>reply</code>, <code>welcome</code>, <code>yearly</code>.</td></tr>
+<tr><td>Inbox letter</td><td>A patron-visibility letter that the writer marked <code>deliver_to_inbox</code>. It appears in patrons' Letters tab.</td></tr>
+<tr><td>Patronage</td><td>The commercial relationship: reader pays writer $4/mo or $40/yr.</td></tr>
+<tr><td>Entitlement</td><td>The access fact derived from patronage (or a gift or comp): "reader R may read writer W's patron letters until time T". <b>The only input to access checks.</b></td></tr>
+<tr><td>Charge</td><td>One payment collected from a reader. It may cover several patronages and tips (bundled billing).</td></tr>
+<tr><td>Tip</td><td>A one-time gift to a writer.</td></tr>
+<tr><td>Ledger</td><td>Append-only double-entry record of every money movement.</td></tr>
+<tr><td>Payout</td><td>A transfer of a writer's available balance to their connected account.</td></tr>
+<tr><td>Content note</td><td>A fixed-taxonomy warning on a letter (e.g. <code>self_harm</code>).</td></tr>
+<tr><td>Evergreen pool</td><td>Curator-approved public letters per mood, used to fill gaps.</td></tr>
+<tr><td>Theme / Type pair</td><td>Display preferences. Themes: <code>ink</code>, <code>dusk</code>, <code>paper</code> (+ <code>system</code>). Type pairs: <code>serif_sans</code>, <code>serif_mono</code>, <code>all_serif</code>.</td></tr>
+</tbody></table>
+
+<h2>1.2 Roles &amp; permissions</h2>
+<p>Roles are additive grants stored in <code>user_roles</code>. "Reader" is implicit for every active account. "Patron" and "author of this letter" are <b>relationships</b>, which policies check per resource. Deny is the default: an action not listed here is forbidden.</p>
+<table><thead><tr><th>Action</th><th>Anon</th><th>Reader</th><th>Writer</th><th>Curator</th><th>Moderator</th><th>Finance</th><th>Admin</th></tr></thead><tbody>
+<tr><td>Read public letter</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Read patron letter in full</td><td>preview</td><td>if entitled</td><td>own</td><td>✗</td><td>if reported</td><td>✗</td><td>break-glass*</td></tr>
+<tr><td>Get Tonight ration</td><td>issue only</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>React, keep line, save, follow, block</td><td>✗</td><td>✓</td><td>✓ (not own letters)</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Private reply to a writer</td><td>✗</td><td>✓ limited</td><td>reply once / thread</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Start patronage / tip</td><td>✗</td><td>✓ (not self)</td><td>✓ (others)</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Apply to write</td><td>✗</td><td>✓</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Create / edit / publish / withdraw letter</td><td>✗</td><td>✗</td><td>own</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td>See own stats, patrons, earnings</td><td>✗</td><td>✗</td><td>own</td><td>✗</td><td>✗</td><td>all</td><td>all</td></tr>
+<tr><td>Approve writer applications</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✗</td><td>✗</td><td>✓</td></tr>
+<tr><td>Re-tag mood / confirm content notes</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>notes only</td><td>✗</td><td>✓</td></tr>
+<tr><td>Build / schedule / hot-swap issues</td><td>✗</td><td>✗</td><td>✗</td><td>✓ (not own letters)</td><td>✗</td><td>✗</td><td>✓</td></tr>
+<tr><td>Remove letter, hide message, suspend, ban</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✗</td><td>✓</td></tr>
+<tr><td>Refund a charge</td><td>✗</td><td>self-serve†</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✓</td></tr>
+<tr><td>Retry / hold payouts</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✓</td></tr>
+<tr><td>Grant / revoke roles</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✓ (2nd admin approves admin grants)</td></tr>
+<tr><td>Read audit log</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>own actions</td><td>finance events</td><td>✓</td></tr>
+<tr><td>Export own data / delete account</td><td>✗</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+</tbody></table>
+<p class="caption">* Break-glass: requires a reason and an MFA step-up, is time-boxed to 30 minutes, and alerts the security channel. † One self-serve refund per reader per 12 months, within 14 days of the charge (BR-BI-09).</p>
+
+<h2>1.3 Business rules</h2>
+<h3>Identity &amp; accounts (BR-ID)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-ID-01</td><td>Sign-in methods: Apple, Google, email magic link, passkey. No passwords.</td></tr>
+<tr><td class="id">BR-ID-02</td><td>One account per verified email (case-insensitive). A new provider identity with a matching verified email is <i>linked</i>, never duplicated. An unverified email never links.</td></tr>
+<tr><td class="id">BR-ID-03</td><td>Readers attest they are 16+ at sign-up. Writers MUST be 18+, verified through payout onboarding before their first payout.</td></tr>
+<tr><td class="id">BR-ID-04</td><td>Account deletion: the account is immediately signed out everywhere, hidden and stops billing. After a 30-day grace period it is hard-deleted or anonymized (§3.6 of Part 3). The user can cancel the deletion during the grace period by signing in.</td></tr>
+<tr><td class="id">BR-ID-05</td><td>Changing email, deleting the account, and staff actions require a recent (≤10 min) re-authentication.</td></tr>
+<tr><td class="id">BR-ID-06</td><td>Display name is optional. Readers appear to writers as their display name, or "A reader" if they have none, unless they are an anonymous patron (BR-BI-12).</td></tr>
+</tbody></table>
+
+<h3>Writer lifecycle (BR-WR)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-WR-01</td><td>Writer states: <code>applied → approved | waitlisted | declined</code>; <code>approved → suspended → approved</code>; <code>approved|suspended → banned</code>; <code>approved → departed</code>. No other transitions.</td></tr>
+<tr><td class="id">BR-WR-02</td><td>Only <code>approved</code> writers may publish, receive new patronages, or appear in issues.</td></tr>
+<tr><td class="id">BR-WR-03</td><td>Pen name: 2–40 characters. It must be unique after normalization (NFKC, lowercase, collapsed whitespace, diacritics folded). It may change at most once per 90 days. Every old slug redirects permanently.</td></tr>
+<tr><td class="id">BR-WR-04</td><td>A pen name MUST NOT impersonate a real, identifiable person or another writer. Curators enforce this at approval; moderators enforce it on report.</td></tr>
+<tr><td class="id">BR-WR-05</td><td>The writer's legal identity lives only with the payment provider. Our system stores only the provider account ID and the <code>payouts_enabled</code> flag.</td></tr>
+<tr><td class="id">BR-WR-06</td><td>Applications are reviewed within 5 working days. A declined applicant may re-apply after 60 days.</td></tr>
+<tr><td class="id">BR-WR-07</td><td>A writer who departs keeps their data export. Their public letters stay readable for 30 days, then are withdrawn unless the writer chose "leave my letters up".</td></tr>
+</tbody></table>
+
+<h3>Letters &amp; notebooks (BR-LE)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-LE-01</td><td>Letter states: <code>draft → scheduled → published</code>; <code>draft → published</code>; <code>published → withdrawn</code> (by the writer); <code>published|withdrawn → removed</code> (by a moderator); <code>removed → published</code> (only through an appeal being granted).</td></tr>
+<tr><td class="id">BR-LE-02</td><td>To publish, a letter needs: a title (1–140 characters), a primary mood, a visibility, and a body of 150–20,000 words. A subtitle is optional (≤200 characters).</td></tr>
+<tr><td class="id">BR-LE-03</td><td>Every save creates an immutable revision. The published revision stays fixed until the writer republishes. Readers only ever see the published revision.</td></tr>
+<tr><td class="id">BR-LE-04</td><td>Reading time = ⌈word count ÷ 230⌉ minutes, minimum 1. It is computed on the server at publish.</td></tr>
+<tr><td class="id">BR-LE-05</td><td>Visibility <code>patron</code>: non-entitled viewers get the title, subtitle, content notes and a preview. The preview is the first <code>preview_percent</code> of the words (writer setting 0–30, default 30), capped at 400 words and cut at the end of a sentence. It is always generated on the server.</td></tr>
+<tr><td class="id">BR-LE-06</td><td>Changing visibility from <code>patron</code> to <code>public</code> is always allowed. Changing from <code>public</code> to <code>patron</code> is blocked while the letter is in a scheduled, locked or live issue (error <code>CONTENT_IN_ACTIVE_ISSUE</code>).</td></tr>
+<tr><td class="id">BR-LE-07</td><td>Scheduling: between 10 minutes and 60 days ahead. A scheduled letter publishes within 60 seconds of its time.</td></tr>
+<tr><td class="id">BR-LE-08</td><td>Content notes come from a fixed list: <code>grief, self_harm, suicide, abuse, addiction, illness, violence, sexual_content</code>. Writers set them; curators may add notes but never remove a writer's note.</td></tr>
+<tr><td class="id">BR-LE-09</td><td>A letter belongs to at most one notebook. Positions inside a notebook are unique and contiguous. Deleting a notebook unassigns its letters; it never deletes them.</td></tr>
+<tr><td class="id">BR-LE-10</td><td>Withdrawing is the writer's "delete". The letter disappears from every reader surface. Kept-line snapshots and private messages remain with their owners.</td></tr>
+<tr><td class="id">BR-LE-11</td><td>AI assistance must be disclosed with a checkbox, shown as "AI-assisted" under the title. Fully generated letters are prohibited (moderation reason <code>ai_generated</code>).</td></tr>
+<tr><td class="id">BR-LE-12</td><td>An inbox letter (<code>deliver_to_inbox</code>) MUST have visibility <code>patron</code>. A writer may send at most 4 per calendar month.</td></tr>
+</tbody></table>
+
+<h3>Curation &amp; issues (BR-CU)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-CU-01</td><td>One issue per (evening date, mood). Exactly 5 slots. Issue states: <code>draft → scheduled → locked → live → archived</code>.</td></tr>
+<tr><td class="id">BR-CU-02</td><td>Eligible letters: <code>published</code>, visibility <code>public</code>, writer <code>approved</code>, not removed, and mood confirmed by a curator.</td></tr>
+<tr><td class="id">BR-CU-03</td><td>Writers in an issue must all be different. A writer may appear at most 2 times per mood in any rolling 7 days (the tool warns at 2 and hard-blocks at 3).</td></tr>
+<tr><td class="id">BR-CU-04</td><td>An issue locks at <b>evening date 00:00 in UTC+14</b> minus 2 hours, i.e. before the earliest lamp time anywhere on Earth. Once locked, changes are "hot swaps": they need a reason, and they apply only to rations not yet built.</td></tr>
+<tr><td class="id">BR-CU-05</td><td>If no issue is scheduled for a (date, mood) at lock time, the system auto-builds one from the evergreen pool (<code>source = evergreen</code>), following BR-CU-03. Each mood's pool MUST hold at least 30 letters; the dashboard alerts below 40.</td></tr>
+<tr><td class="id">BR-CU-06</td><td>Placement can't be bought, requested or influenced by payments. Curators MUST NOT place their own letters.</td></tr>
+<tr><td class="id">BR-CU-07</td><td>A letter appears in at most one issue per mood per 90 days.</td></tr>
+</tbody></table>
+
+<h3>Ration &amp; Tonight (BR-RA)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-RA-01</td><td>Lamp time: in <code>sunset</code> mode, local sunset computed from the reader's coarse location cell, clamped to 17:00–21:30 local. Without a location, 18:00 local. In <code>fixed</code> mode, the reader's chosen time (between 15:00 and 23:30).</td></tr>
+<tr><td class="id">BR-RA-02</td><td>Evening date: if local now ≥ today's lamp time, it is today's local date; otherwise yesterday's. The reader's IANA time zone is the only source of local time.</td></tr>
+<tr><td class="id">BR-RA-03</td><td>At most one ration per (reader, evening date). Concurrent requests MUST converge on the same ration.</td></tr>
+<tr><td class="id">BR-RA-04</td><td>A ration is built lazily on the first request after lamp time, or eagerly by the lamp job for readers who opted into the lamp notification.</td></tr>
+<tr><td class="id">BR-RA-05</td><td>Composition: up to 2 personal slots (patron writers first, then followed writers) from letters published in the last 48h. The remaining slots come from the issue for the reader's mood, in curated order. Backfill from the evergreen pool if needed. Constraints: 5 distinct writers; no letter the reader has already read (completed) before; no blocked writer; no withdrawn or removed letter; personal slots may be patron letters only if the reader is entitled to them.</td></tr>
+<tr><td class="id">BR-RA-06</td><td>A built ration is a snapshot. It changes only through: (a) mood switch (BR-RA-07); (b) a letter withdrawn or removed: if the slot is unread it is replaced, if read it becomes a tombstone ("withdrawn by the writer"); (c) the reader blocks a writer: the slot is replaced.</td></tr>
+<tr><td class="id">BR-RA-07</td><td>Mood switch: at most once per ration. Only unread slots are rebuilt, from the new mood's issue. Read slots stay.</td></tr>
+<tr><td class="id">BR-RA-08</td><td>A slot counts as read when scroll progress ≥ 0.8 <i>or</i> active dwell ≥ 50% of reading time. Both are measured on the client, validated for plausibility on the server (dwell can't exceed wall-clock time between heartbeats), and recorded idempotently.</td></tr>
+<tr><td class="id">BR-RA-09</td><td>Before the reader's first lamp time ever, or between rations, Tonight shows the most recent ration (or today's default-mood issue for new readers) plus the countdown to the next lamp time.</td></tr>
+<tr><td class="id">BR-RA-10</td><td>Anonymous visitors get the current issue for the mood they pick in-session (default <code>tender</code>), public letters only, with no personal slots. Nothing is stored on the server.</td></tr>
+<tr><td class="id">BR-RA-11</td><td>The archive is reachable only on purpose: writer pages, notebooks, search, the Shelf. There is no global chronological or popularity list.</td></tr>
+</tbody></table>
+
+<h3>Engagement (BR-EN)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-EN-01</td><td>Reactions: one per (reader, letter, anchor). The glyph can be changed or removed. Writers can't react to their own letters.</td></tr>
+<tr><td class="id">BR-EN-02</td><td>Reaction totals, kept counts, read counts, follower counts and patron counts are visible <b>only</b> to the letter's writer and to staff. Never to readers. Never in public HTML.</td></tr>
+<tr><td class="id">BR-EN-03</td><td>Kept lines: 1–500 characters, from the published revision, stored with a snapshot of the text, title and pen name. The reader can delete them. They survive later edits, withdrawal or removal of the letter (only the reader sees them).</td></tr>
+<tr><td class="id">BR-EN-04</td><td>Private replies: 1–1,000 characters. A reader may send at most 3 per writer per day and 20 per day in total. Writers reply at most once per reader message. Readers can't message writers who blocked them.</td></tr>
+<tr><td class="id">BR-EN-05</td><td>Yearly letter: an active patron with ≥30 days of tenure may send one <code>yearly</code> message (≤3,000 characters) per writer per 365 days.</td></tr>
+<tr><td class="id">BR-EN-06</td><td>Follow is free, capped at 1,000 writers per reader. Follow lists are private.</td></tr>
+<tr><td class="id">BR-EN-07</td><td>Blocking a writer hides them from every surface for that reader, prevents messages both ways, and does <i>not</i> cancel a patronage (the reader is prompted to cancel).</td></tr>
+<tr><td class="id">BR-EN-08</td><td>Cards render on the server only: quote, pen name, letter title, harystyles mark, in the reader's chosen theme. Cards from patron letters are allowed (the reader is entitled) but limited to the 500-character kept line.</td></tr>
+</tbody></table>
+
+<h3>Patronage, billing &amp; tips (BR-BI)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-BI-01</td><td>Prices come from the server-side <code>price_points</code> table, per currency and interval. MVP: USD 400/month and 4000/year (minor units), plus GBP, CAD and AUD equivalents. Clients never send amounts for patronage.</td></tr>
+<tr><td class="id">BR-BI-02</td><td>At most one non-ended patronage per (reader, writer). A reader can't be their own patron (same user, or same payment-method fingerprint as the writer's account).</td></tr>
+<tr><td class="id">BR-BI-03</td><td><b>Bundled billing:</b> each reader has at most one monthly and one yearly billing bundle. All of the reader's patronages on that interval are line items on one charge per period.</td></tr>
+<tr><td class="id">BR-BI-04</td><td>The first patronage in a bundle is charged immediately; access starts only once payment succeeds. Later patronages join the bundle: access starts immediately and the prorated amount goes on the next charge. A reader with no successful charge in their history may have at most 3 unpaid joins.</td></tr>
+<tr><td class="id">BR-BI-05</td><td>Cancelling takes effect at the end of the period, and access lasts until then. Re-starting before the period ends simply undoes the cancellation; there is no new charge.</td></tr>
+<tr><td class="id">BR-BI-06</td><td>Failed renewal: the patronage becomes <code>past_due</code> and access continues for a 3-day grace period. Payment is retried 3 times over 7 days. If all retries fail, the patronage becomes <code>lapsed</code> and access ends. Paying the open invoice within 30 days restores it.</td></tr>
+<tr><td class="id">BR-BI-07</td><td>Tips: 200–20,000 minor units. Tips ≥500 are charged immediately. Tips under 500 require an active bundle and are added to its next charge; otherwise the request is rejected with <code>BILLING_TIP_TOO_SMALL_STANDALONE</code>.</td></tr>
+<tr><td class="id">BR-BI-08</td><td>Writer suspended: their patronage line items are paused (no charge), with a prorated credit for the unused paid time. Reinstated: items resume on the next period. Banned or departed: patronages are cancelled, with a prorated refund to the original payment method.</td></tr>
+<tr><td class="id">BR-BI-09</td><td>Self-serve refund: a reader may get the full amount of their most recent charge back if they ask within 14 days, at most once per 12 months. Access covered by the refunded lines ends immediately. Other refunds go through Finance.</td></tr>
+<tr><td class="id">BR-BI-10</td><td>Mobile apps open checkout on the web where store rules allow. Where they don't, the app shows "Support on the web" with no price and no call to action, as the store guidelines require. In-app purchase is a future entitlement source (EX-14).</td></tr>
+<tr><td class="id">BR-BI-11</td><td>Tax is calculated by the payment provider's tax service. Displayed prices include tax where the law requires it (UK and AU), and exclude it otherwise.</td></tr>
+<tr><td class="id">BR-BI-12</td><td>Anonymous patron: the writer sees "An anonymous patron", and replies are disabled for that patron unless they message first.</td></tr>
+</tbody></table>
+
+<h3>Ledger &amp; payouts (BR-LD)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-LD-01</td><td>All money is an integer number of minor units plus an ISO currency. Floating point is forbidden anywhere money is handled.</td></tr>
+<tr><td class="id">BR-LD-02</td><td>Split per charge line: <code>net = gross − allocated processor fee − tax</code>; <code>platform = round_half_even(net × 0.10)</code>; <code>writer = net − platform</code>. Processor fees are allocated across lines by the largest-remainder method, so the line allocations always add up to the actual fee.</td></tr>
+<tr><td class="id">BR-LD-03</td><td>Every money movement posts one balanced ledger transaction (entries sum to 0 per currency), with an idempotency key derived from the source event.</td></tr>
+<tr><td class="id">BR-LD-04</td><td>Writer funds become available 7 days after the charge succeeds (settlement hold).</td></tr>
+<tr><td class="id">BR-LD-05</td><td>Payout run: the 5th of each month at 09:00 UTC. Pays every writer whose available balance is ≥1,000 minor units and who has <code>payouts_enabled</code>. One payout per (writer, period, currency).</td></tr>
+<tr><td class="id">BR-LD-06</td><td>Refunds and chargebacks after a payout create a negative writer balance. It is recovered from future earnings and never charged to the writer. Dispute fees are absorbed by the platform.</td></tr>
+<tr><td class="id">BR-LD-07</td><td>Writers can download monthly and yearly statements generated from the ledger. Studio numbers come from the ledger, never from separate counters.</td></tr>
+</tbody></table>
+
+<h3>Notifications (BR-NO)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-NO-01</td><td>Allowed reader push notifications: <code>lamp_lit</code> (off by default), <code>new_letter_from_patronized_writer</code>, <code>private_reply</code>, <code>inbox_letter</code>, <code>billing_problem</code>, <code>security</code>. Nothing else ships without a rule change here.</td></tr>
+<tr><td class="id">BR-NO-02</td><td>Quiet hours (default 23:00–08:00 local): no pushes except <code>security</code>. Deferred pushes are sent at the end of quiet hours, or dropped if they have expired.</td></tr>
+<tr><td class="id">BR-NO-03</td><td>At most 1 push per writer per reader per day, and 3 non-security pushes per reader per day in total.</td></tr>
+<tr><td class="id">BR-NO-04</td><td>Notification text MUST NOT include patron-only body text. Titles are allowed.</td></tr>
+<tr><td class="id">BR-NO-05</td><td>Email is used for receipts, security, inbox letters (if the reader opts in, which is the default) and writer payout notices. One-click unsubscribe is required on all non-transactional email.</td></tr>
+</tbody></table>
+
+<h3>Moderation &amp; safety (BR-MO)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-MO-01</td><td>Report reasons: <code>harassment, hate, csam, self_harm_promotion, imminent_risk, plagiarism, impersonation, ai_generated, spam, other</code>.</td></tr>
+<tr><td class="id">BR-MO-02</td><td>Priority: <code>csam</code> and <code>imminent_risk</code> are P0 (target: acknowledged within 1 hour, around the clock). Harassment and hate are P1 (24 hours). Everything else is P2 (72 hours).</td></tr>
+<tr><td class="id">BR-MO-03</td><td>CSAM: immediate automatic hiding, evidence preserved under restricted access, legal reporting obligations followed (counsel-defined runbook). Never restored.</td></tr>
+<tr><td class="id">BR-MO-04</td><td>Letters with a <code>self_harm</code> or <code>suicide</code> content note show an interstitial with local crisis resources before the body, once per reader per letter.</td></tr>
+<tr><td class="id">BR-MO-05</td><td>Private messages are screened by a classifier for imminent risk and harassment. Flags create P0/P1 reports. Moderators can read only messages attached to a report.</td></tr>
+<tr><td class="id">BR-MO-06</td><td>Sanctions: warn, remove content, suspend (7, 30 or 90 days), ban. Every sanction notifies the user with a reason and an appeal link. Appeals are accepted within 14 days and reviewed by a different moderator.</td></tr>
+<tr><td class="id">BR-MO-07</td><td>A letter reported by ≥5 distinct readers within 24h is auto-hidden pending review, unless the writer has ≥10 published letters and none removed (brigading protection). In that case it gets priority review instead.</td></tr>
+</tbody></table>
+
+<h3>Privacy &amp; preferences (BR-PR)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody>
+<tr><td class="id">BR-PR-01</td><td>Reading history, reactions, kept lines, follows and blocks belong to the reader. They are never shown to other readers, sold, or used to train models. They are used only for the reader's own features and for anonymous, aggregated writer stats.</td></tr>
+<tr><td class="id">BR-PR-02</td><td>Location is stored only as a coarse cell (geohash precision 4, roughly 20 km) for sunset calculation. The reader can clear it, which reverts lamp time to 18:00.</td></tr>
+<tr><td class="id">BR-PR-03</td><td>Account-level display preferences: <code>theme ∈ {system, ink, dusk, paper}</code>, <code>theme_auto_by_time</code>, <code>type_pair ∈ {serif_sans, serif_mono, all_serif}</code>, <code>reading_size ∈ {s, m, l}</code>, <code>dyslexia_font</code>. They sync to every client. A device MAY keep a local "this device only" override, which never goes to the server.</td></tr>
+<tr><td class="id">BR-PR-04</td><td>Conflicting preference edits from two devices resolve per field: the latest server-received write wins.</td></tr>
+<tr><td class="id">BR-PR-05</td><td>Emails always render in the <code>paper</code> theme (email client limits). Cards and OG images use the requester's theme, or <code>ink</code> when anonymous.</td></tr>
+<tr><td class="id">BR-PR-06</td><td>Data export (JSON plus a human-readable PDF of the Shelf) is delivered within 72 hours through a signed link valid for 7 days.</td></tr>
+</tbody></table>
+
+<h2 class="chapter">1.4 Invariants — what must never happen</h2>
+<p>Invariants are stronger than rules. Each one has at least one automated test, and where possible a database constraint or runtime assertion that pages on-call if it is violated in production.</p>
+<table><thead><tr><th>ID</th><th>Must never happen</th><th>Primary guard</th></tr></thead><tbody>
+<tr><td class="id">INV-01</td><td>A non-entitled viewer receives patron-only body text beyond the preview. This covers every channel: API, server-rendered HTML, RSS, email, push, search index, card, OG image, sitemap, cache, logs.</td><td>Single render path <code>content.renderForViewer()</code>; DTO schemas; leak scanner test</td></tr>
+<tr><td class="id">INV-02</td><td>A reader-facing response contains any count from BR-EN-02.</td><td>Separate <code>ReaderView</code> / <code>WriterView</code> DTOs; contract test that bans count fields</td></tr>
+<tr><td class="id">INV-03</td><td>Any non-finance endpoint returns a writer's legal identity or bank details.</td><td>Not stored (BR-WR-05)</td></tr>
+<tr><td class="id">INV-04</td><td>A ledger transaction's entries don't sum to zero per currency.</td><td>Deferred constraint trigger</td></tr>
+<tr><td class="id">INV-05</td><td>The same source event posts money twice, or a writer is paid twice for a period.</td><td>Unique idempotency keys; unique (writer, period, currency)</td></tr>
+<tr><td class="id">INV-06</td><td>A reader is charged with no patronage or tip record behind each charge line.</td><td>Charge lines reference their source; reconciliation job</td></tr>
+<tr><td class="id">INV-07</td><td>A ration has duplicate writers, a previously completed letter, a blocked writer, an unpublished, withdrawn or removed letter, or a patron letter the reader isn't entitled to.</td><td>Builder post-condition assertion + property tests</td></tr>
+<tr><td class="id">INV-08</td><td>A delivered ration changes outside BR-RA-06 and BR-RA-07.</td><td>Slot generations (append-only)</td></tr>
+<tr><td class="id">INV-09</td><td>An issue contains a patron letter, a writer twice, or the curator's own letter.</td><td>Validation at schedule and lock</td></tr>
+<tr><td class="id">INV-10</td><td>Payment state affects placement or ranking anywhere.</td><td>The curation module has no dependency on billing (lint boundary)</td></tr>
+<tr><td class="id">INV-11</td><td>A private message is readable by anyone except its two parties, or by moderators without a linked report.</td><td>Policy + encrypted body + access audit</td></tr>
+<tr><td class="id">INV-12</td><td>A staff or admin action happens without an audit-log entry.</td><td>Audit write in the same transaction as the action</td></tr>
+<tr><td class="id">INV-13</td><td>A webhook, job or retried request causes its effect twice.</td><td>Inbox table, idempotency keys</td></tr>
+<tr><td class="id">INV-14</td><td>A client decides access, price, split, evening date or ration contents.</td><td>Clients consume server results only</td></tr>
+<tr><td class="id">INV-15</td><td>Personal data of a deleted account remains after 30 days, except pseudonymized financial records kept for legal reasons.</td><td>Purge job + verification query</td></tr>
+<tr><td class="id">INV-16</td><td>A push is sent during quiet hours (non-security) or breaks the frequency caps.</td><td>Notification gateway is the only sender</td></tr>
+<tr><td class="id">INV-17</td><td>Secrets, tokens or message bodies appear in logs, traces or error reports.</td><td>Logger redaction + scanner</td></tr>
+<tr><td class="id">INV-18</td><td>Search returns or indexes patron-letter body text.</td><td>Indexer reads public render only</td></tr>
+</tbody></table>
+
+<h2>1.5 Exceptions &amp; edge cases</h2>
+<table><thead><tr><th>ID</th><th>Situation</th><th>Required behavior</th></tr></thead><tbody>
+<tr><td class="id">EX-01</td><td>Reader changes time zone (travel)</td><td>The current ration is kept until the next lamp time computed in the <i>new</i> zone. If that moment is already past, the next request builds the new evening's ration. Never two rations for the same evening date.</td></tr>
+<tr><td class="id">EX-02</td><td>DST transition day</td><td>Lamp time is computed on the local wall clock for that date. A nonexistent local time moves forward to the first valid minute; an ambiguous time uses the first occurrence.</td></tr>
+<tr><td class="id">EX-03</td><td>Polar day or night (no sunset)</td><td>Clamp to 17:00–21:30 (BR-RA-01).</td></tr>
+<tr><td class="id">EX-04</td><td>Issue for the reader's mood has fewer than 5 eligible letters for them (all already read)</td><td>Backfill from the evergreen pool for that mood, then from adjacent moods (fixed adjacency table). If still short, return fewer slots plus the flag <code>short_ration=true</code>, never a duplicate.</td></tr>
+<tr><td class="id">EX-05</td><td>A letter in a live issue is withdrawn or removed</td><td>Event → slots replaced or tombstoned in already-built rations (async, ≤5 min). Rations not yet built use the next eligible letter (hot-swap logic).</td></tr>
+<tr><td class="id">EX-06</td><td>Payment webhooks arrive out of order or duplicated</td><td>The inbox processes per customer in provider-timestamp order. State changes are applied only if newer than the stored provider version. Duplicates are ignored.</td></tr>
+<tr><td class="id">EX-07</td><td>Payment provider unavailable during checkout</td><td>The user sees "Payments are taking a moment. Nothing was charged." The patronage stays <code>incomplete</code> and is cleaned up after 24h.</td></tr>
+<tr><td class="id">EX-08</td><td>Writer's payout account is restricted</td><td>The payout is skipped and the balance carries over. The writer gets a notice with the provider's link to fix it.</td></tr>
+<tr><td class="id">EX-09</td><td>Writer withdraws a letter while a reader has it open</td><td>The next API call returns <code>410 CONTENT_WITHDRAWN</code>. Clients show "This letter was withdrawn by the writer." The kept-line snapshot stays.</td></tr>
+<tr><td class="id">EX-10</td><td>Reader edits preferences offline on two devices</td><td>Per-field last-write-wins by server receive time (BR-PR-04). The client shows the server value after sync.</td></tr>
+<tr><td class="id">EX-11</td><td>An old mobile app version calls a changed endpoint</td><td>Additive changes only within <code>/v1</code>. Below the minimum supported version, the API returns <code>426</code> with an upgrade link.</td></tr>
+<tr><td class="id">EX-12</td><td>An edit breaks sentence anchors</td><td>Re-anchor algorithm (Part 3 §3.9a). Unmatched anchors become orphans: writer totals keep them, highlights hide them, kept lines are unaffected.</td></tr>
+<tr><td class="id">EX-13</td><td>Reader requests account deletion with active patronages or open reports</td><td>Patronages are cancelled immediately (no refund unless BR-BI-09 applies). Reports keep pseudonymized reporter and target references until resolved.</td></tr>
+<tr><td class="id">EX-14</td><td>In-app purchase added later</td><td>A new entitlement source <code>apple|google</code>. Access checks are unchanged. Store-specific state lives only in the billing infrastructure layer.</td></tr>
+<tr><td class="id">EX-15</td><td>Curator hot-swaps after rations were already built</td><td>Built rations are untouched (snapshot). The change applies only to rations built afterwards. The audit log records the reason.</td></tr>
+</tbody></table>
+
+<h2 class="chapter">1.6 Feature interaction matrix</h2>
+<p>Most production bugs live where two features meet. Each row is a required scenario test (<code>FX-nn</code>) in the cross-feature suite (Part 5 §7.3).</p>
+<table><thead><tr><th>ID</th><th>When…</th><th>…while</th><th>Required outcome</th></tr></thead><tbody>
+<tr><td class="id">FX-01</td><td>Writer suspended</td><td>Has active patrons; letters in live issues and rations</td><td>Billing items paused with prorated credit (BR-BI-08). Letters stay readable by entitled patrons. Unread ration slots replaced. Future issues drop the writer.</td></tr>
+<tr><td class="id">FX-02</td><td>Letter visibility changed public→patron</td><td>Letter is in kept lines, saves and a scheduled issue</td><td>Blocked if it's in an issue (BR-LE-06). Otherwise: saves show a preview with the patron CTA; kept-line snapshots unchanged; search index downgraded to title and subtitle within 5 min.</td></tr>
+<tr><td class="id">FX-03</td><td>Reader blocks a writer</td><td>Is their patron; writer is in tonight's ration</td><td>Slot replaced. Messages disabled both ways. Patronage continues, with a prompt to cancel. Writer is told nothing.</td></tr>
+<tr><td class="id">FX-04</td><td>Patronage lapses</td><td>Reader has the patron letter open, kept lines and an inbox letter</td><td>The open letter degrades to preview on the next fetch. Kept-line snapshots stay. Inbox letters show a preview with "Renew to read".</td></tr>
+<tr><td class="id">FX-05</td><td>Refund issued</td><td>Writer already paid out that month</td><td>Ledger reversal. Writer balance goes negative and is recovered from later earnings (BR-LD-06). Access for the refunded lines ends.</td></tr>
+<tr><td class="id">FX-06</td><td>Account deletion</td><td>Reader is also a writer with patrons and an unpaid balance</td><td>Writer's patronages cancelled with prorated refunds. Final payout is processed if ≥ the minimum; otherwise the balance is held for 90 days then forfeited per the terms. Letters follow BR-WR-07.</td></tr>
+<tr><td class="id">FX-07</td><td>Mood switch</td><td>A personal (patron) slot is unread</td><td>Personal slots are kept. Only issue-sourced unread slots are rebuilt.</td></tr>
+<tr><td class="id">FX-08</td><td>Letter republished with edits</td><td>Has reactions, kept lines and a cached render</td><td>Anchors re-mapped. Render cache key includes the revision ID, so it refreshes automatically. Card images regenerate on demand only.</td></tr>
+<tr><td class="id">FX-09</td><td>Pen name change</td><td>Cards shared, emails sent, slug indexed</td><td>Old slug redirects (301). Existing cards and kept-line snapshots keep the old name (historical truth). New renders use the new name.</td></tr>
+<tr><td class="id">FX-10</td><td>Moderator removes a letter</td><td>Letter is in the evergreen pool and in 3 future issues</td><td>Removed from the pool. Future issues flagged "needs replacement" and curators alerted. If not fixed by lock time, evergreen autofill applies.</td></tr>
+<tr><td class="id">FX-11</td><td>Theme or type pair changed on web</td><td>Mobile app open; card render requested</td><td>Mobile picks up the change on its next bootstrap or focus. Cards render with the new theme. Email stays paper (BR-PR-05).</td></tr>
+<tr><td class="id">FX-12</td><td>Tip under 500</td><td>Bundle is <code>past_due</code></td><td>Rejected (<code>BILLING_BUNDLE_NOT_ACTIVE</code>). The client offers to fix the payment method first.</td></tr>
+<tr><td class="id">FX-13</td><td>Reader travels across the date line</td><td>Ration already read</td><td>EX-01 applies. Never two rations per evening date. "Read" status carries over.</td></tr>
+<tr><td class="id">FX-14</td><td>Writer departs</td><td>Inbox letters scheduled; patrons mid-period</td><td>Scheduled inbox letters cancelled. Patronages cancelled with prorated refunds. Already-delivered inbox letters stay readable by those patrons for 30 days.</td></tr>
+</tbody></table>
+
+<h2>1.7 Non-functional requirements</h2>
+<table><thead><tr><th>Area</th><th>Requirement</th></tr></thead><tbody>
+<tr><td>Availability</td><td>99.9% monthly for reader APIs during lamp hours (17:00–24:00 in each region). 99.5% otherwise. Payment webhooks fully processed within 15 min, 99% of the time.</td></tr>
+<tr><td>Performance</td><td>API p95: under 200 ms for reads and under 400 ms for writes. Letter page LCP under 2.5 s on 4G. Mobile cold start under 2 s on a mid-range device.</td></tr>
+<tr><td>Durability</td><td>RPO ≤ 5 minutes, RTO ≤ 2 hours. Ledger and letters: zero tolerated loss after commit.</td></tr>
+<tr><td>Accessibility</td><td>WCAG 2.2 AA across all themes and type pairs. 44×44 touch targets. Dynamic type up to 200%. Reduced-motion setting honored.</td></tr>
+<tr><td>Privacy</td><td>GDPR, UK GDPR, CCPA. Data minimization. No advertising SDKs. Analytics on first-party infrastructure only.</td></tr>
+<tr><td>Localization</td><td>English at launch. All strings externalized, ICU message format, locale-aware dates and money. Layouts don't assume left-to-right text.</td></tr>
+<tr><td>Compatibility</td><td>Last 2 major versions of iOS and Android. Evergreen browsers plus Safari from the last 2 years. Mobile app versions supported for 90 days after release.</td></tr>
+</tbody></table>
+</section>
+<section class="part">
+<div class="eyebrow">Engineering handbook · Part 2 of 5 · Areas 2 &amp; 5</div>
+<h1 class="part-title">System architecture &amp; <em>technology stack</em></h1>
+<p class="lede">How the web apps, mobile apps, backend, database, jobs, files and third parties talk to each other, and the small set of tools we use to build them.</p>
+<div class="meta"><span><b>Owner</b> Tech lead</span><span><b>Style</b> Modular monolith · one API for web + mobile · async via outbox</span><span><b>Related ADRs</b> 001–012</span></div>
+
+<h2>2.1 Architectural principles</h2>
+<ol>
+<li><b>One backend, one API, many clients.</b> Web reader, web studio, internal console, iOS and Android all call the same versioned HTTP API. There are no client-specific business rules and no "mobile-only" endpoints without an ADR.</li>
+<li><b>Modular monolith first.</b> One deployable codebase, split into business modules with enforced boundaries (Part 4). We split out a service only when a module has a different scaling or security profile <i>and</i> the cost is measured (ADR-002).</li>
+<li><b>Each business rule lives in exactly one place.</b> The rule index (Part 4 §4.4) names the single function for each rule. Clients render results; they never recompute them.</li>
+<li><b>The server is authoritative.</b> Access, price, split, evening date, ration contents and counts are decided on the server and returned as data.</li>
+<li><b>Side effects are asynchronous and idempotent.</b> State changes and the events describing them commit in one database transaction (transactional outbox). Workers deliver effects with idempotency keys. External calls never happen inside a database transaction.</li>
+<li><b>Postgres is the system of record.</b> Redis, CDN, search and caches can be rebuilt from Postgres at any time.</li>
+<li><b>Boring, few, well-supported tools.</b> Every runtime dependency has an owner and an ADR (Part 2 §2.12).</li>
+<li><b>Everything is code.</b> Infrastructure, schema, flags, permissions and docs are versioned and reviewed.</li>
+</ol>
+
+<h2>2.2 System context</h2>
+<pre><code>  ┌──────────────┐  ┌───────────────────────────┐  ┌─────────────────────┐
+  │ iOS / Android│  │ Web (Next.js)             │  │ Console (Next.js)   │
+  │ Expo app     │  │ reader · studio · marketing│  │ curation · T&amp;S · $  │
+  └──────┬───────┘  └────────────┬──────────────┘  └─────────┬───────────┘
+         │ HTTPS JSON /v1        │ server components → API     │ staff SSO + MFA
+         │ bearer token          │ session cookie forwarded    │
+         └───────────────┬───────┴─────────────────────────────┘
+                         ▼
+          ┌─────────────────────────────────────────────┐
+ webhooks │  API service  (Fastify · modular monolith)  │
+ ───────▶ │  /v1/*  /v1/admin/*  /webhooks/*            │
+          └──┬─────────┬───────────┬──────────────┬─────┘
+             ▼         ▼           ▼              ▼
+        PostgreSQL   Redis     S3 + CDN     outbox_events ──▶ pg-boss queue
+        (primary +  (cache,   (media,                          │
+         replica)    limits)   cards)                          ▼
+                                            ┌───────────────────────────────┐
+                                            │ Worker service (same code)    │
+                                            │ jobs · schedulers · consumers │
+                                            └─┬──────┬──────┬──────┬────────┘
+                                              ▼      ▼      ▼      ▼
+                                           Stripe  Email  Push   Image/card
+                                           (Billing, (Postmark) (APNs/FCM  render
+                                            Connect,            via Expo)
+                                            Tax)</code></pre>
+
+<h2>2.3 Components &amp; responsibilities</h2>
+<table><thead><tr><th>Component</th><th>Responsibility</th><th>Must not</th></tr></thead><tbody>
+<tr><td>Mobile app (Expo / React Native)</td><td>Reader experience, draft editing, push, offline cache of tonight's ration, secure token storage</td><td>Compute access, price, ration or counts. Hold secrets. Call Stripe except through the payment sheet.</td></tr>
+<tr><td>Web app (Next.js)</td><td>Server-rendered reader pages (SEO for public letters and writer pages), studio, marketing. Acts as a thin backend-for-frontend: server components call the API with the user's session.</td><td>Access the database. Contain business rules. Cache entitled responses at the CDN.</td></tr>
+<tr><td>Console (Next.js, separate origin)</td><td>Curation calendar, issue builder, moderation queue, finance tools</td><td>Bypass <code>/v1/admin</code> policies. Run raw SQL.</td></tr>
+<tr><td>API service</td><td>Authentication, authorization, validation, use-case orchestration, synchronous reads and writes, webhook intake</td><td>Call external APIs inside DB transactions. Do long work in a request (anything over 1 s becomes a job).</td></tr>
+<tr><td>Worker service</td><td>Outbox relay, scheduled jobs, webhook processing, emails, pushes, media, cards, payouts, aggregation, purge</td><td>Expose HTTP, apart from health checks.</td></tr>
+<tr><td>PostgreSQL</td><td>System of record, job queue (pg-boss), full-text search (MVP)</td><td>Hold secrets or card data.</td></tr>
+<tr><td>Redis</td><td>Rate limits, short-lived caches, dirty-sets for aggregation, session cache</td><td>Be the only copy of anything.</td></tr>
+<tr><td>S3 + CloudFront</td><td>Media (public and private buckets), cards, exports</td><td>Serve private media without signed URLs.</td></tr>
+</tbody></table>
+
+<h2>2.4 Communication rules</h2>
+<table><thead><tr><th>From → to</th><th>Mechanism</th><th>Rules</th></tr></thead><tbody>
+<tr><td>Client → API</td><td>HTTPS JSON, <code>/v1</code>, OpenAPI-described</td><td>Typed clients generated from <code>@hs/contracts</code>. Each request carries <code>X-Client: ios/1.4.2</code> and <code>X-Request-Id</code>.</td></tr>
+<tr><td>Web server → API</td><td>Internal HTTPS, session cookie forwarded</td><td>Same endpoints as mobile. The API never trusts the web server's claims; it validates the session itself.</td></tr>
+<tr><td>Module → module (sync)</td><td>Function call through the target module's <code>index.ts</code></td><td>Never deep imports. Never another module's tables.</td></tr>
+<tr><td>Module → module (async)</td><td>Domain event written to <code>outbox_events</code> in the same transaction</td><td>Consumers are idempotent and tolerate out-of-order delivery.</td></tr>
+<tr><td>Provider → us</td><td>Webhooks to <code>/webhooks/{provider}</code></td><td>Verify the signature, store in <code>inbox_events</code> (unique by provider event ID), return 200, process in the worker.</td></tr>
+<tr><td>Us → provider</td><td>From worker jobs (checkout session creation is the only synchronous exception)</td><td>Idempotency key on every mutating call. Timeouts 10 s. Circuit breaker per provider.</td></tr>
+<tr><td>Client → storage</td><td>Presigned URLs from the API</td><td>Uploads use presigned POST with size and type limits. Private reads use signed GET (10 min).</td></tr>
+</tbody></table>
+
+<h2>2.5 API design standard</h2>
+<ul>
+<li><b>Style:</b> resource-oriented REST, JSON, <code>camelCase</code> fields, ISO-8601 UTC timestamps, money as <code>{ amountMinor: 400, currency: "USD" }</code>.</li>
+<li><b>Versioning:</b> <code>/v1</code>. Only additive changes inside a version: new optional fields and new endpoints. Removing or renaming anything requires <code>/v2</code> or a 6-month deprecation with a <code>Sunset</code> header.</li>
+<li><b>Errors:</b> RFC 9457 <code>application/problem+json</code> with a stable <code>code</code> (e.g. <code>BILLING_CARD_DECLINED</code>), a user-safe <code>title</code>, and <code>requestId</code>. Clients branch on <code>code</code>, never on the message text.</li>
+<li><b>Pagination:</b> keyset cursors (<code>?cursor=…&amp;limit=…</code>, max 50), never offsets.</li>
+<li><b>Idempotency:</b> <code>Idempotency-Key</code> is required on POSTs that create money movements, messages, reports or patronages. The stored response is replayed for 24h.</li>
+<li><b>Concurrency:</b> letters and issues return an <code>ETag</code> (version). Updates require <code>If-Match</code>, or get <code>412</code> on conflict.</li>
+<li><b>Access-shaped responses:</b> any content response includes the server's verdict, so clients never compute it:</li>
+</ul>
+<pre><code>GET /v1/letters/{id}
+{ "letter": { "id": "…", "title": "…", "visibility": "patron", "readingMinutes": 7, … },
+  "access": { "level": "preview", "reason": "not_patron",
+              "cta": { "kind": "become_patron", "writerId": "…", "price": { "amountMinor": 400, "currency": "USD", "interval": "month" } } },
+  "body": [ /* blocks already truncated by the server */ ],
+  "contentNotes": ["grief"], "interstitial": null }</code></pre>
+
+<h3>Endpoint catalogue (v1, abbreviated)</h3>
+<table><thead><tr><th>Area</th><th>Endpoints</th></tr></thead><tbody>
+<tr><td>Bootstrap</td><td><code>GET /me/bootstrap</code>: user, roles, preferences, evaluated flags, minimum app version, lamp schedule. One call at launch.</td></tr>
+<tr><td>Auth</td><td><code>POST /auth/magic-link</code> · <code>POST /auth/magic-link/verify</code> · <code>POST /auth/oauth/{apple|google}</code> · <code>POST /auth/passkey/*</code> · <code>POST /auth/refresh</code> · <code>POST /auth/logout</code> · <code>GET/DELETE /me/sessions</code></td></tr>
+<tr><td>Preferences</td><td><code>GET/PATCH /me/preferences</code> (per-field) · <code>GET/PATCH /me/notification-settings</code> · <code>POST /me/devices</code></td></tr>
+<tr><td>Tonight</td><td><code>GET /tonight</code> (builds lazily) · <code>POST /tonight/mood-switch</code> · <code>POST /reading-progress</code> (batched heartbeats)</td></tr>
+<tr><td>Discovery</td><td><code>GET /moods</code> · <code>GET /moods/{mood}/picks</code> · <code>GET /search?q=</code> · <code>GET /writers/{slug}</code> · <code>GET /writers/{slug}/letters</code> · <code>GET /notebooks/{id}</code></td></tr>
+<tr><td>Letters (read)</td><td><code>GET /letters/{id}</code> · <code>GET /letters/{id}/anchors</code></td></tr>
+<tr><td>Engagement</td><td><code>PUT/DELETE /letters/{id}/reactions/{anchorId}</code> · <code>POST/GET/DELETE /me/kept-lines</code> · <code>POST /me/kept-lines/{id}/card</code> · <code>PUT/DELETE /me/follows/{writerId}</code> · <code>PUT/DELETE /me/saves/{letterId}</code> · <code>PUT/DELETE /me/blocks/{userId}</code></td></tr>
+<tr><td>Letters inbox</td><td><code>GET /me/threads</code> · <code>GET /me/threads/{id}</code> · <code>POST /writers/{id}/messages</code> · <code>POST /threads/{id}/messages</code></td></tr>
+<tr><td>Patronage</td><td><code>POST /patronages/checkout</code> (returns a payment client secret or web URL) · <code>GET /me/patronages</code> · <code>POST /patronages/{id}/cancel</code> · <code>POST /patronages/{id}/resume</code> · <code>POST /tips</code> · <code>POST /me/refund-requests</code> · <code>GET /me/charges</code></td></tr>
+<tr><td>Studio</td><td><code>POST/GET/PATCH /studio/letters</code> · <code>POST /studio/letters/{id}/publish|schedule|withdraw</code> · <code>GET /studio/letters/{id}/revisions</code> · <code>/studio/notebooks</code> · <code>GET /studio/stats</code> · <code>GET /studio/patrons</code> · <code>GET /studio/earnings</code> · <code>POST /studio/payout-onboarding</code> · <code>POST /media/uploads</code></td></tr>
+<tr><td>Writer application</td><td><code>POST /writer-applications</code> · <code>GET /me/writer-application</code></td></tr>
+<tr><td>Safety</td><td><code>POST /reports</code> · <code>GET /me/sanctions</code> · <code>POST /appeals</code></td></tr>
+<tr><td>Account</td><td><code>POST /me/export</code> · <code>POST /me/deletion</code> · <code>DELETE /me/deletion</code></td></tr>
+<tr><td>Admin (staff)</td><td><code>/admin/issues</code> · <code>/admin/curation-queue</code> · <code>/admin/evergreen</code> · <code>/admin/applications</code> · <code>/admin/reports</code> · <code>/admin/sanctions</code> · <code>/admin/refunds</code> · <code>/admin/payouts</code> · <code>/admin/roles</code> · <code>/admin/audit</code> · <code>/admin/flags</code></td></tr>
+<tr><td>Webhooks</td><td><code>/webhooks/stripe</code> · <code>/webhooks/stripe-connect</code> · <code>/webhooks/postmark</code> · (future) <code>/webhooks/apple</code>, <code>/webhooks/google</code></td></tr>
+</tbody></table>
+
+<h2 class="chapter">2.6 Background jobs</h2>
+<table><thead><tr><th>Job</th><th>Trigger</th><th>Idempotency key</th><th>Retry</th></tr></thead><tbody>
+<tr><td><code>outbox.relay</code></td><td>Continuous (poll every 500 ms, <code>SKIP LOCKED</code>)</td><td>event ID</td><td>Forever, alert at lag > 60 s</td></tr>
+<tr><td><code>ration.prebuild</code></td><td>Every minute: readers with the lamp push on and <code>next_lamp_at ≤ now+2 min</code></td><td><code>ration:{reader}:{eveningDate}</code></td><td>3× then the lazy build covers it</td></tr>
+<tr><td><code>notify.lamp</code></td><td>After prebuild</td><td><code>lamp:{reader}:{eveningDate}</code></td><td>Dropped after 30 min</td></tr>
+<tr><td><code>schedule.recompute</code></td><td>Preference, time zone or location change; daily sweep</td><td><code>sched:{reader}:{date}</code></td><td>5× exponential</td></tr>
+<tr><td><code>letter.publish-scheduled</code></td><td>Every 30 s</td><td><code>publish:{letter}:{revision}</code></td><td>5×</td></tr>
+<tr><td><code>issue.lock</code> / <code>issue.autofill</code></td><td>Hourly; lock window per BR-CU-04</td><td><code>issue:{date}:{mood}</code></td><td>5×, page on failure</td></tr>
+<tr><td><code>ration.repair</code></td><td>LetterWithdrawn / LetterRemoved / WriterSuspended / Blocked</td><td><code>repair:{letter}:{event}</code></td><td>10×</td></tr>
+<tr><td><code>billing.inbox.process</code></td><td>New <code>inbox_events</code> row</td><td>provider event ID</td><td>12× over 24h, then dead-letter + alert</td></tr>
+<tr><td><code>ledger.post</code></td><td>ChargeSucceeded / Refunded / Disputed</td><td><code>ledger:{source}:{id}</code></td><td>Forever, alert</td></tr>
+<tr><td><code>entitlement.reconcile</code></td><td>Nightly, plus on demand</td><td>run date</td><td>Alerts on any drift</td></tr>
+<tr><td><code>payout.run</code> / <code>payout.reconcile</code></td><td>5th of month 09:00 UTC / daily</td><td><code>payout:{writer}:{period}:{ccy}</code></td><td>Manual after 3 failures</td></tr>
+<tr><td><code>email.send</code> / <code>push.send</code></td><td>Notification events</td><td>notification <code>dedupe_key</code></td><td>5× / 3×</td></tr>
+<tr><td><code>media.process</code></td><td>Upload confirmed</td><td>media ID</td><td>3×, then <code>rejected</code></td></tr>
+<tr><td><code>card.render</code></td><td>Card requested</td><td><code>card:{keptLine}:{theme}:{typePair}</code></td><td>3×</td></tr>
+<tr><td><code>search.index</code></td><td>Letter/writer events</td><td><code>idx:{entity}:{version}</code></td><td>5×</td></tr>
+<tr><td><code>stats.aggregate</code></td><td>Every 5 min (dirty set)</td><td>window</td><td>Next run catches up</td></tr>
+<tr><td><code>moderation.classify</code></td><td>MessageSent</td><td>message ID</td><td>3×, fail-open to P2 queue</td></tr>
+<tr><td><code>account.purge</code> / <code>export.build</code></td><td>Daily / on request</td><td>user ID</td><td>5×, alert</td></tr>
+</tbody></table>
+
+<h2>2.7 Domain events</h2>
+<p>Events describe facts in the past tense. They are versioned (<code>type</code> + <code>version</code>) and carry IDs plus the minimum data consumers need. Consumers re-read the current state when correctness depends on it. An event's schema lives in <code>@hs/contracts/events</code>, and changing it follows the same additive rule as the API.</p>
+<table><thead><tr><th>Event</th><th>Producer</th><th>Consumers</th></tr></thead><tbody>
+<tr><td>LetterPublished · LetterRepublished</td><td>content</td><td>search, curation queue, notifications (patrons/followers), engagement (re-anchor)</td></tr>
+<tr><td>LetterWithdrawn · LetterRemoved · LetterVisibilityChanged</td><td>content / moderation</td><td>ration (repair), curation (issues, evergreen), search, cache</td></tr>
+<tr><td>WriterApproved · WriterSuspended · WriterReinstated · WriterBanned · WriterDeparted · PenNameChanged</td><td>profiles / moderation</td><td>billing (pause/cancel), curation, ration, search, slugs</td></tr>
+<tr><td>IssueLocked · IssueHotSwapped</td><td>curation</td><td>ration (cache warm), audit</td></tr>
+<tr><td>RationBuilt · SlotRead</td><td>ration</td><td>engagement (reads), stats</td></tr>
+<tr><td>PatronageStarted · PatronageCancelScheduled · PatronageLapsed · PatronageEnded</td><td>billing</td><td>entitlements, notifications, studio stats</td></tr>
+<tr><td>ChargeSucceeded · ChargeRefunded · ChargeDisputed</td><td>billing</td><td>ledger, entitlements, notifications</td></tr>
+<tr><td>EntitlementChanged</td><td>entitlements</td><td>cache invalidation, ration (personal slots)</td></tr>
+<tr><td>ReactionChanged · KeptLineCreated</td><td>engagement</td><td>stats (dirty set)</td></tr>
+<tr><td>MessageSent</td><td>messaging</td><td>moderation (classify), notifications</td></tr>
+<tr><td>ReportFiled · SanctionApplied</td><td>moderation</td><td>content, profiles, notifications, audit</td></tr>
+<tr><td>PreferencesChanged</td><td>preferences</td><td>schedule recompute, cache</td></tr>
+<tr><td>AccountDeletionRequested · AccountPurged</td><td>identity</td><td>every module that holds personal data</td></tr>
+</tbody></table>
+
+<h2>2.8 File storage</h2>
+<table><thead><tr><th>Bucket</th><th>Contents</th><th>Access</th></tr></thead><tbody>
+<tr><td><code>hs-media-public</code></td><td>Avatars, images in public letters (processed variants)</td><td>CDN, immutable keys (content hash), long cache</td></tr>
+<tr><td><code>hs-media-private</code></td><td>Images in patron letters</td><td>Signed GET URLs (10 min) issued only by the entitled render path</td></tr>
+<tr><td><code>hs-cards</code></td><td>Rendered cards, OG images (public letters only)</td><td>CDN</td></tr>
+<tr><td><code>hs-exports</code></td><td>Data exports, statements</td><td>Signed (7 days), lifecycle delete after 14 days</td></tr>
+<tr><td><code>hs-quarantine</code></td><td>Raw uploads before processing</td><td>No public access, deleted after 24h</td></tr>
+</tbody></table>
+<p><b>Upload flow:</b> client asks <code>POST /media/uploads</code> (declares type and size) → API returns presigned POST to the quarantine bucket (JPEG/PNG/WebP/HEIC only, max 10 MB) → client uploads → client confirms → worker checks magic bytes, strips EXIF, scans for malware, creates AVIF/WebP variants (480/960/1600 px), moves to the public or private bucket based on the letter's visibility → <code>media.status = ready</code>. If a letter changes visibility, its media is copied to the right bucket by the same job.</p>
+
+<h2>2.9 Caching</h2>
+<table><thead><tr><th>Layer</th><th>What</th><th>Invalidation</th></tr></thead><tbody>
+<tr><td>CDN (anonymous only)</td><td>Server-rendered public letter pages, writer pages, marketing, media, cards</td><td><code>s-maxage=300, stale-while-revalidate=86400</code>; purge on LetterWithdrawn/Removed and PenNameChanged</td></tr>
+<tr><td>CDN (signed-in)</td><td>Never</td><td><code>Cache-Control: private, no-store</code> on every authenticated response</td></tr>
+<tr><td>Redis: render cache</td><td>Rendered blocks per <code>{letterId}:{revisionId}:{level}</code></td><td>The key includes the revision, so it never goes stale; TTL 24h</td></tr>
+<tr><td>Redis: entitlement</td><td><code>ent:{reader}:{writer}</code> → until-timestamp</td><td>Deleted on EntitlementChanged; TTL 60 s as a safety net</td></tr>
+<tr><td>Redis: issue</td><td>Issue slots per (date, mood)</td><td>Deleted on hot swap; TTL 1h</td></tr>
+<tr><td>Client (TanStack Query)</td><td>Server state</td><td>Server-driven <code>staleTime</code> per resource; refetch on focus</td></tr>
+</tbody></table>
+
+<h2>2.10 Integrations</h2>
+<table><thead><tr><th>Concern</th><th>Provider</th><th>Port (interface we own)</th></tr></thead><tbody>
+<tr><td>Payments, subscriptions, tax, payouts</td><td>Stripe Billing + Stripe Tax + Connect Express</td><td><code>PaymentsGateway</code>, <code>PayoutsGateway</code></td></tr>
+<tr><td>Sign-in</td><td>Apple, Google (OIDC), WebAuthn</td><td><code>IdentityProvider</code></td></tr>
+<tr><td>Email</td><td>Postmark (transactional stream + broadcast stream)</td><td><code>Mailer</code></td></tr>
+<tr><td>Push</td><td>Expo Push Service (APNs, FCM)</td><td><code>PushSender</code></td></tr>
+<tr><td>Storage / CDN</td><td>S3, CloudFront</td><td><code>ObjectStore</code></td></tr>
+<tr><td>Safety classifier</td><td>Hosted moderation model (provider chosen at build time)</td><td><code>SafetyClassifier</code></td></tr>
+<tr><td>Errors / telemetry</td><td>Sentry · OpenTelemetry → Grafana Cloud</td><td>logger / tracer wrappers</td></tr>
+</tbody></table>
+<p>Every provider is used only through its port in the owning module's <code>infra/</code> folder. Tests use in-memory fakes of the same port. Changing provider means writing one adapter, not editing use cases.</p>
+
+<h2>2.11 Modes &amp; pairs across all clients</h2>
+<p>There are three themes (<code>ink</code>, <code>dusk</code>, <code>paper</code>, plus <code>system</code>) and three type pairs (<code>serif_sans</code> = Fraunces + Inter Tight, <code>serif_mono</code> = Fraunces + JetBrains Mono, <code>all_serif</code> = Fraunces only). That makes 9 visual combinations, all supported on web, iOS, Android and in server-rendered artifacts.</p>
+<ul>
+<li><b>One token source:</b> <code>packages/tokens/src/*.json</code> (color scales in OKLCH with sRGB fallbacks, type, space, radii, motion). A build step (Style Dictionary) produces: web CSS variables under <code>[data-theme][data-type-pair]</code>, a React Native theme object, and email-safe hex values for <code>paper</code>. Nobody hand-edits the outputs; CI fails if they drift from the source.</li>
+<li><b>Preference sync:</b> <code>user_preferences</code> on the server (BR-PR-03). <code>GET /me/bootstrap</code> returns it. <code>PATCH /me/preferences</code> sends only changed fields, and the server timestamps each field (last-write-wins, BR-PR-04).</li>
+<li><b>No flash on web:</b> the web app mirrors theme and type pair into a first-party cookie <code>hs_pref</code>, which the server reads to render the right <code>data-theme</code> attribute. <code>system</code> resolves on the client with an inline pre-paint script.</li>
+<li><b>Mobile:</b> applied before the first screen renders, from SecureStore cache, then reconciled with bootstrap. <code>theme_auto_by_time</code> switches at lamp time (dusk) and 06:00 (paper), computed by the client from the server-provided schedule.</li>
+<li><b>Server-rendered artifacts:</b> cards and OG images take <code>theme</code> + <code>typePair</code> parameters (validated enums). Emails are always paper (BR-PR-05).</li>
+<li><b>Testing:</b> visual regression runs all 9 combinations on key screens (Part 5 §7.1). Contrast is checked per theme by a token unit test (text ≥ 4.5:1).</li>
+</ul>
+
+<h2 class="chapter">2.12 Technology stack (Area 5)</h2>
+<p>The rule for choosing: <b>one tool per job, TypeScript everywhere, mainstream and well maintained, and runnable locally with Docker.</b></p>
+<table><thead><tr><th>Concern</th><th>Choice</th><th>Why</th><th>Rejected</th></tr></thead><tbody>
+<tr><td>Language</td><td>TypeScript 5 (strict) everywhere</td><td>One language across API, web and mobile; shared contracts</td><td>Polyglot services</td></tr>
+<tr><td>Runtime</td><td>Node.js 22 LTS</td><td>LTS, ecosystem</td><td>Bun/Deno (younger tooling)</td></tr>
+<tr><td>HTTP server</td><td>Fastify 5</td><td>Fast, schema-first, mature plugins</td><td>Express (slower, weaker typing), NestJS (heavy)</td></tr>
+<tr><td>Contracts</td><td>Zod schemas → OpenAPI 3.1 (zod-to-openapi) → generated clients (openapi-typescript + openapi-fetch)</td><td>One source for validation, docs and client types</td><td>Hand-written clients; GraphQL (unneeded for this domain)</td></tr>
+<tr><td>Database</td><td>PostgreSQL 16 (RDS, Multi-AZ)</td><td>Relational integrity, JSONB, full-text search, mature</td><td>NoSQL (our data is relational and financial)</td></tr>
+<tr><td>Data access</td><td>Drizzle ORM + plain SQL migrations (drizzle-kit generate, reviewed)</td><td>Typed, close to SQL, no runtime magic</td><td>Prisma (heavier engine, weaker SQL control)</td></tr>
+<tr><td>Jobs</td><td>pg-boss</td><td>Transactional with our data; no extra infrastructure until ~1k jobs/s</td><td>SQS/Kafka (premature)</td></tr>
+<tr><td>Cache / limits</td><td>Redis 7 (ElastiCache)</td><td>Standard</td><td>In-memory (doesn't work with multiple instances)</td></tr>
+<tr><td>Auth</td><td>Own <code>identity</code> module: sessions in Postgres, <code>arctic</code> (OAuth), <code>@simplewebauthn/server</code>, <code>jose</code> (JWT)</td><td>Full control over linking, deletion and mobile tokens; small audited libraries</td><td>Hosted auth (cost, lock-in, harder account linking)</td></tr>
+<tr><td>Payments</td><td>Stripe Billing, Connect Express, Tax; Stripe Elements (web), PaymentSheet (mobile)</td><td>Bundled subscriptions with line items, marketplace payouts, PCI SAQ-A</td><td>Building our own</td></tr>
+<tr><td>Web</td><td>Next.js 15 (App Router), React 19, CSS Modules + token variables</td><td>Server rendering for SEO, route groups for reader/studio/marketing</td><td>SPA-only (no SEO)</td></tr>
+<tr><td>Editor</td><td>TipTap (ProseMirror) with a shared schema package; mobile uses TipTap in an isolated WebView</td><td>One document model and one editor everywhere</td><td>Two native editors (divergent output)</td></tr>
+<tr><td>Mobile</td><td>Expo (React Native), Expo Router, expo-secure-store, expo-notifications, EAS Build/Submit</td><td>Single codebase (decision D10), managed native builds</td><td>Separate Swift/Kotlin apps (2× cost at MVP)</td></tr>
+<tr><td>Client data</td><td>TanStack Query</td><td>Caching, retries, offline persistence</td><td>Redux for server state</td></tr>
+<tr><td>Search</td><td>Postgres full-text + <code>pg_trgm</code></td><td>Enough for under 1M letters</td><td>OpenSearch (until measured need)</td></tr>
+<tr><td>Email</td><td>Postmark + React Email templates</td><td>Deliverability, separate streams</td><td>—</td></tr>
+<tr><td>Images / cards</td><td><code>sharp</code>; Satori + resvg for cards and OG</td><td>Fast, server-side, deterministic</td><td>Headless browser rendering (heavy)</td></tr>
+<tr><td>Observability</td><td>pino, OpenTelemetry, Sentry, Grafana Cloud</td><td>Open standards, vendor-swappable</td><td>—</td></tr>
+<tr><td>Testing</td><td>Vitest, Testcontainers, fast-check, Playwright, Maestro, k6, axe-core</td><td>Part 5 §7</td><td>—</td></tr>
+<tr><td>Monorepo</td><td>pnpm workspaces + Turborepo; ESLint (+ boundaries), Prettier, dependency-cruiser</td><td>Shared packages, cached builds, enforced module boundaries</td><td>Polyrepo (contract drift)</td></tr>
+<tr><td>Infrastructure</td><td>AWS: ECS Fargate (api, worker, web), RDS, ElastiCache, S3, CloudFront, Secrets Manager, KMS, WAF; Terraform</td><td>One cloud, managed services, infrastructure as code</td><td>Kubernetes (operational overhead at this scale)</td></tr>
+<tr><td>CI/CD</td><td>GitHub Actions; EAS for mobile; Renovate</td><td>Standard</td><td>—</td></tr>
+</tbody></table>
+
+<h3>Dependency policy</h3>
+<ul>
+<li>A new <b>runtime</b> dependency in <code>services/</code> or <code>apps/mobile</code> needs an ADR or a short note in the PR covering: purpose, alternatives, license (MIT, Apache-2.0, BSD, ISC only), maintenance health (release in the last 6 months, more than one maintainer or backed by an organization), bundle and native impact, and exit cost.</li>
+<li>Prefer the platform and existing dependencies. No two libraries for the same job (e.g. one date library: <code>Temporal</code> polyfill; one validation library: Zod).</li>
+<li>Renovate opens update PRs weekly, grouped by ecosystem. Security patches merge within 72h (critical: 24h). Majors are planned quarterly.</li>
+<li>Lockfile is committed. <code>pnpm audit</code> and license checks run in CI. Packages that run install scripts are on an allow-list.</li>
+<li>Expo SDK upgrades follow the Expo release cadence, within 2 months of a new SDK.</li>
+</ul>
+</section>
+<section class="part">
+<div class="eyebrow">Engineering handbook · Part 3 of 5 · Area 3</div>
+<h1 class="part-title">Data model, database &amp; <em>algorithms</em></h1>
+<p class="lede">Entities, relationships, constraints, ownership, history and transaction boundaries, plus the data structures and algorithms behind the core mechanics.</p>
+<div class="meta"><span><b>Owner</b> Tech lead + module owners</span><span><b>Engine</b> PostgreSQL 16</span><span><b>Source of truth</b> <code>services/core/db/migrations/*.sql</code></span></div>
+
+<h2>3.1 Conventions</h2>
+<ul>
+<li>Tables are plural <code>snake_case</code>. Primary key <code>id uuid</code>, a UUIDv7 generated by the application (time-ordered, index-friendly, unguessable enough that IDs aren't enumerable, though security never relies on that).</li>
+<li>Every table has <code>created_at timestamptz not null default now()</code>. Mutable tables also have <code>updated_at</code>, maintained by a trigger.</li>
+<li>Enumerations are <code>text</code> + <code>CHECK</code> constraints (easy, lock-free migration), mirrored by Zod enums in <code>@hs/contracts</code>. A test asserts the two lists match.</li>
+<li>Money: <code>amount_minor bigint</code> + <code>currency char(3)</code>. Never <code>numeric</code> on its own, never float.</li>
+<li>Times: always <code>timestamptz</code> (UTC). Local wall-clock values are <code>date</code>/<code>time</code> + an IANA <code>timezone text</code>.</li>
+<li>Case-insensitive identifiers (email, slug) use <code>citext</code>.</li>
+<li>Foreign keys always. <code>ON DELETE RESTRICT</code> by default; <code>CASCADE</code> only for pure child rows (e.g. issue slots), and declared in the table notes.</li>
+<li><b>Each table has one owning module.</b> Only that module writes it (§3.4). Reads across modules go through the owner's public interface or a documented read-only view.</li>
+</ul>
+
+<h2>3.2 Entity-relationship overview</h2>
+<pre><code>users 1─1 user_preferences        users 1─* auth_identities, sessions, devices, user_roles
+users 1─0..1 writer_profiles ─1─* letters ─1─* letter_revisions
+writer_profiles 1─* notebooks 1─* letters (0..1 notebook per letter)
+letters *─* content notes (letter_content_notes)       letters *─* media (letter_media)
+issues 1─5 issue_slots *─1 letters                     evergreen_pool 1─1 letters
+users(reader) 1─* rations 1─* ration_slots *─1 letters  rations *─1 issues
+users(reader) *─* letters via reads, reactions, kept_lines, saves
+users(reader) *─* writer_profiles via follows, patronages ─1─* entitlements
+users(reader) 1─* charges 1─* charge_lines *─0..1 patronages | tips
+ledger_transactions 1─* ledger_entries *─1 ledger_accounts (per writer / platform)
+writer_profiles 1─* payouts
+threads (reader, writer) 1─* messages
+reports *─1 (letter | message | user) ── moderation_actions
+outbox_events · inbox_events · idempotency_keys · audit_log · feature_flags (platform)</code></pre>
+
+<h2>3.3 Schema by module</h2>
+<p>Abbreviated DDL: common columns (<code>created_at</code>, <code>updated_at</code>) are omitted unless they're meaningful. The full DDL lives in migrations.</p>
+
+<h3>identity</h3>
+<pre><code>users(
+  id uuid pk, email citext unique not null, email_verified_at timestamptz,
+  display_name text check (char_length(display_name) &lt;= 60),
+  status text not null default 'active'
+    check (status in ('active','deletion_requested','deleted','banned')),
+  age_attested_at timestamptz not null, deletion_requested_at timestamptz, purged_at timestamptz)
+user_roles(user_id fk users, role text check (role in ('writer','curator','moderator','finance','admin')),
+  granted_by fk users, granted_at timestamptz, primary key (user_id, role))
+auth_identities(id pk, user_id fk users, provider text check (provider in ('apple','google','email','passkey')),
+  provider_subject text not null, unique (provider, provider_subject))
+passkeys(id pk, user_id fk, credential_id bytea unique, public_key bytea, sign_count bigint, transports text[], last_used_at)
+sessions(id pk, user_id fk, kind text check (kind in ('web','mobile')), family_id uuid not null,
+  refresh_token_hash bytea unique, mfa_at timestamptz, reauth_at timestamptz,
+  user_agent text, ip_hash bytea, last_seen_at, expires_at not null, revoked_at)
+magic_links(token_hash bytea pk, email citext, expires_at, consumed_at)</code></pre>
+
+<h3>preferences</h3>
+<pre><code>user_preferences(user_id pk fk users,
+  theme text not null default 'system' check (theme in ('system','ink','dusk','paper')),
+  theme_auto_by_time boolean not null default false,
+  type_pair text not null default 'serif_sans' check (type_pair in ('serif_sans','serif_mono','all_serif')),
+  reading_size text not null default 'm' check (reading_size in ('s','m','l')),
+  dyslexia_font boolean not null default false,
+  preferred_moods text[] not null default '{tender}'
+    check (cardinality(preferred_moods) between 1 and 3
+           and preferred_moods &lt;@ array['tender','restless','melancholy','still','burning','untethered']),
+  lamp_mode text not null default 'sunset' check (lamp_mode in ('sunset','fixed')),
+  lamp_fixed_time time check (lamp_fixed_time between '15:00' and '23:30'),
+  timezone text not null,              -- IANA, validated by the app against the tz database
+  geo_cell text,                       -- geohash precision 4, nullable
+  quiet_start time not null default '23:00', quiet_end time not null default '08:00',
+  anonymous_patron_default boolean not null default false,
+  field_updated_at jsonb not null default '{}',  -- per-field last-write-wins timestamps
+  check (lamp_mode &lt;&gt; 'fixed' or lamp_fixed_time is not null))
+notification_settings(user_id fk, channel text check (channel in ('push','email')), kind text, enabled boolean,
+  primary key (user_id, channel, kind))
+devices(id pk, user_id fk, platform text check (platform in ('ios','android','web')),
+  push_token text unique, app_version text, last_seen_at)
+reader_schedule(reader_id pk fk users, next_lamp_at timestamptz not null, next_evening_date date not null,
+  computed_at timestamptz)                       -- index on next_lamp_at</code></pre>
+
+<h3>profiles</h3>
+<pre><code>writer_profiles(user_id pk fk users, pen_name text not null, pen_name_normalized text unique not null,
+  slug citext unique not null, bio_quote text check (char_length(bio_quote) &lt;= 200),
+  location_phrase text check (char_length(location_phrase) &lt;= 60), avatar_media_id fk media,
+  status text not null check (status in ('applied','waitlisted','declined','approved','suspended','banned','departed')),
+  preview_percent smallint not null default 30 check (preview_percent between 0 and 30),
+  keep_letters_after_departure boolean not null default false,
+  stripe_account_id text unique, payouts_enabled boolean not null default false,
+  approved_at, approved_by fk users, pen_name_changed_at, suspended_until)
+writer_applications(id pk, user_id fk, pen_name, bio, samples jsonb,
+  status check (status in ('pending','approved','waitlisted','declined')), reviewed_by fk, reviewed_at, decision_note)
+slug_redirects(old_slug citext pk, writer_id fk writer_profiles)</code></pre>
+
+<h3>content</h3>
+<pre><code>letters(id pk, writer_id fk writer_profiles not null, slug text not null,
+  title text not null check (char_length(title) between 1 and 140),
+  subtitle text check (char_length(subtitle) &lt;= 200),
+  primary_mood text check (primary_mood in (/* six moods */)),
+  visibility text not null default 'public' check (visibility in ('public','patron')),
+  deliver_to_inbox boolean not null default false,
+  ai_assisted boolean not null default false,
+  status text not null default 'draft' check (status in ('draft','scheduled','published','withdrawn','removed')),
+  current_revision_id uuid, published_revision_id uuid,
+  word_count int, reading_minutes smallint,
+  notebook_id fk notebooks, notebook_position int,
+  scheduled_for timestamptz, published_at, withdrawn_at, removed_at, removed_reason text,
+  version int not null default 1,                       -- optimistic concurrency (ETag)
+  search_vector tsvector,                               -- maintained by search job, public text only
+  unique (writer_id, slug),
+  unique (notebook_id, notebook_position) deferrable initially deferred,
+  check ((notebook_id is null) = (notebook_position is null)),
+  check (status &lt;&gt; 'scheduled' or scheduled_for is not null),
+  check (not deliver_to_inbox or visibility = 'patron'),
+  check (status not in ('published','scheduled') or (primary_mood is not null and published_revision_id is not null)))
+letter_revisions(id pk, letter_id fk letters, body jsonb not null, body_text text not null,
+  anchors jsonb not null, editor_schema_version int not null, created_by fk users)   -- append-only
+letter_content_notes(letter_id fk, note text check (note in ('grief','self_harm','suicide','abuse',
+  'addiction','illness','violence','sexual_content')), set_by text check (set_by in ('writer','curator')),
+  primary key (letter_id, note))
+notebooks(id pk, writer_id fk, title, description, mood_tint text, position int, unique (writer_id, position))
+media(id pk, owner_user_id fk, bucket text check (bucket in ('quarantine','public','private')),
+  object_key text unique, mime text, bytes int, width int, height int,
+  status text check (status in ('pending','ready','rejected')))
+letter_media(letter_id fk, media_id fk, primary key (letter_id, media_id))</code></pre>
+
+<h3>curation</h3>
+<pre><code>issues(id pk, evening_date date not null, mood text not null,
+  status text not null check (status in ('draft','scheduled','locked','live','archived')),
+  source text not null check (source in ('curated','evergreen')),
+  curator_id fk users, locked_at, version int not null default 1, unique (evening_date, mood))
+issue_slots(issue_id fk issues on delete cascade, position smallint check (position between 1 and 5),
+  letter_id fk letters, writer_id fk writer_profiles,          -- denormalized for the distinct check
+  primary key (issue_id, position), unique (issue_id, letter_id), unique (issue_id, writer_id))
+curator_reviews(letter_id pk fk letters, confirmed_mood text, curator_id fk, reviewed_at)
+evergreen_pool(letter_id pk fk letters, mood text not null, active boolean not null default true, added_by fk)
+issue_changes(id pk, issue_id fk, actor_id fk, change jsonb, reason text)              -- append-only</code></pre>
+
+<h3>ration</h3>
+<pre><code>rations(id pk, reader_id fk users not null, evening_date date not null, mood text not null,
+  original_mood text, issue_id fk issues, lamp_at timestamptz not null, timezone text not null,
+  mood_switched_at timestamptz, short_ration boolean not null default false,
+  unique (reader_id, evening_date))
+ration_slots(ration_id fk rations on delete cascade, position smallint check (position between 1 and 5),
+  generation smallint not null default 0, letter_id fk letters,
+  source text check (source in ('issue','patron','follow','evergreen')),
+  state text not null default 'active' check (state in ('active','superseded','tombstoned')),
+  read_at timestamptz, progress real not null default 0,
+  primary key (ration_id, position, generation))
+  -- partial unique: one active row per position
+  create unique index on ration_slots (ration_id, position) where state = 'active';
+reads(reader_id fk, letter_id fk, first_opened_at, max_progress real, dwell_seconds int,
+  completed_at timestamptz, primary key (reader_id, letter_id))</code></pre>
+
+<h3>engagement</h3>
+<pre><code>reactions(reader_id fk, letter_id fk, anchor_id text, glyph text check (glyph in
+  ('kept','tender','spark','staying','held')), revision_id fk letter_revisions,
+  orphaned boolean not null default false, primary key (reader_id, letter_id, anchor_id))
+kept_lines(id pk, reader_id fk, letter_id fk, revision_id fk, anchor_from jsonb, anchor_to jsonb,
+  text_snapshot text not null check (char_length(text_snapshot) between 1 and 500),
+  title_snapshot text not null, pen_name_snapshot text not null, deleted_at timestamptz)
+follows(reader_id fk, writer_id fk, primary key (reader_id, writer_id))
+saves(reader_id fk, letter_id fk, primary key (reader_id, letter_id))
+blocks(blocker_id fk users, blocked_id fk users, primary key (blocker_id, blocked_id), check (blocker_id &lt;&gt; blocked_id))
+letter_stats(letter_id pk fk, reactions jsonb not null default '{}', kept_count int, open_count int,
+  completed_count int, refreshed_at)        -- writer-only, aggregated asynchronously</code></pre>
+
+<h3>messaging</h3>
+<pre><code>threads(id pk, reader_id fk users, writer_id fk writer_profiles,
+  kind text check (kind in ('reply','welcome','yearly')), letter_id fk letters,
+  last_message_at, unique (reader_id, writer_id, kind, letter_id))
+messages(id pk, thread_id fk, sender_id fk users, body_ciphertext bytea not null, dek_id text not null,
+  moderation_state text not null default 'ok' check (moderation_state in ('ok','flagged','hidden')),
+  read_at timestamptz)
+inbox_deliveries(letter_id fk letters, reader_id fk users, delivered_at, read_at,
+  primary key (letter_id, reader_id))</code></pre>
+
+<h3>billing &amp; entitlements</h3>
+<pre><code>billing_customers(reader_id pk fk users, stripe_customer_id text unique not null, currency char(3) not null)
+price_points(id pk, currency char(3), interval text check (interval in ('month','year')),
+  amount_minor bigint not null check (amount_minor &gt; 0), stripe_price_id text unique, active boolean,
+  -- one active price per currency+interval:
+  exclude/partial unique (currency, interval) where active)
+bundles(id pk, reader_id fk, interval text, stripe_subscription_id text unique,
+  status text check (status in ('incomplete','active','past_due','canceled')),
+  provider_version bigint not null default 0,          -- last applied provider event timestamp
+  unique (reader_id, interval) where status &lt;&gt; 'canceled')
+patronages(id pk, reader_id fk users, writer_id fk writer_profiles, bundle_id fk bundles,
+  interval text, currency char(3), amount_minor bigint,
+  status text not null check (status in ('incomplete','active','past_due','cancel_scheduled','paused','lapsed','ended')),
+  source text not null default 'stripe' check (source in ('stripe','apple','google','gift','comp')),
+  anonymous boolean not null default false, stripe_item_id text unique,
+  started_at, current_period_end timestamptz, cancel_at, ended_at, end_reason text,
+  check (reader_id &lt;&gt; writer_id))
+  create unique index one_open_patronage on patronages (reader_id, writer_id)
+    where status in ('incomplete','active','past_due','cancel_scheduled','paused');
+patronage_events(id pk, patronage_id fk, type text, payload jsonb, occurred_at)       -- append-only
+tips(id pk, reader_id fk, writer_id fk, amount_minor bigint check (amount_minor between 200 and 20000),
+  currency char(3), status text check (status in ('pending','succeeded','failed','refunded')), charge_id fk charges)
+charges(id pk, reader_id fk, provider text, provider_ref text, amount_minor bigint, fee_minor bigint,
+  tax_minor bigint, currency char(3),
+  status text check (status in ('pending','succeeded','failed','refunded','partially_refunded','disputed')),
+  succeeded_at, unique (provider, provider_ref))
+charge_lines(id pk, charge_id fk charges, kind text check (kind in ('patronage','tip','proration','credit')),
+  patronage_id fk, tip_id fk, writer_id fk writer_profiles, amount_minor bigint, fee_alloc_minor bigint,
+  tax_minor bigint, check ((kind in ('patronage','proration')) = (patronage_id is not null)))
+entitlements(id pk, reader_id fk, writer_id fk, source text, source_ref text not null,
+  valid_from timestamptz, valid_until timestamptz,
+  status text check (status in ('active','grace','revoked')), unique (source, source_ref))
+  create index on entitlements (reader_id, writer_id, valid_until) where status in ('active','grace');</code></pre>
+<p><b>Why both <code>patronages</code> and <code>entitlements</code>?</b> A patronage is the commercial relationship and has billing states. An entitlement is the access fact. Access can come from several sources (Stripe, a future in-app purchase, gifts, comps), so <code>canRead</code> reads one table with one index, whatever the source. Entitlements are written only by the billing module when it applies patronage changes. A nightly <code>entitlement.reconcile</code> job recomputes them from patronages and alerts on any difference.</p>
+
+<h3>ledger &amp; payouts</h3>
+<pre><code>ledger_accounts(id pk, kind text check (kind in ('cash_clearing','processor_fees','tax_payable',
+  'platform_revenue','writer_payable','writer_paid','refunds','disputes')),
+  writer_id fk writer_profiles, currency char(3), unique nulls not distinct (kind, writer_id, currency))
+ledger_transactions(id pk, kind text, source_type text, source_id uuid,
+  idempotency_key text unique not null, occurred_at timestamptz not null)
+ledger_entries(id pk, transaction_id fk, account_id fk, amount_minor bigint not null check (amount_minor &lt;&gt; 0),
+  currency char(3) not null, available_at timestamptz)  -- settlement hold for writer_payable credits
+  -- deferred constraint trigger: per transaction, per currency, sum(amount_minor) = 0      (INV-04)
+  -- grants: app role has INSERT + SELECT only; no UPDATE/DELETE                           (append-only)
+payouts(id pk, writer_id fk, period_start date, period_end date, currency char(3), amount_minor bigint check (amount_minor &gt; 0),
+  status text check (status in ('pending','in_transit','paid','failed','cancelled')),
+  stripe_transfer_id text unique, idempotency_key text unique not null,
+  unique (writer_id, period_start, currency))                                              -- INV-05</code></pre>
+
+<h3>moderation, notifications &amp; platform</h3>
+<pre><code>reports(id pk, reporter_id fk users, target_type text check (target_type in ('letter','message','user')),
+  target_id uuid, reason text, notes text, priority text check (priority in ('p0','p1','p2')),
+  status text check (status in ('open','in_review','actioned','dismissed')), assignee_id fk, resolved_at)
+moderation_actions(id pk, report_id fk, actor_id fk, target_type, target_id,
+  action text check (action in ('remove','restore','warn','suspend','ban','hide_message','unhide_message')),
+  reason text not null, expires_at)                                                         -- append-only
+appeals(id pk, action_id fk moderation_actions, user_id fk, statement text, status, reviewer_id fk, decided_at)
+notifications(id pk, user_id fk, kind text, channel text, payload jsonb, dedupe_key text unique,
+  not_before timestamptz, expires_at timestamptz, status text, sent_at)
+outbox_events(id pk, aggregate_type text, aggregate_id uuid, type text, version int, payload jsonb,
+  occurred_at, published_at)            -- partial index where published_at is null
+inbox_events(provider text, event_id text, type text, payload jsonb, provider_created_at timestamptz,
+  received_at, processed_at, attempts int, last_error text, primary key (provider, event_id))
+idempotency_keys(user_id uuid, key text, request_hash bytea, status_code int, response jsonb,
+  expires_at, primary key (user_id, key))
+audit_log(id pk, actor_id, actor_roles text[], action text, target_type, target_id,
+  before jsonb, after jsonb, reason text, request_id text, ip_hash bytea, at)                 -- append-only
+feature_flags(key text pk, kind text check (kind in ('release','ops','experiment')), rules jsonb,
+  owner text, expires_on date, updated_by fk)</code></pre>
+
+<h2 class="chapter">3.4 Ownership</h2>
+<table><thead><tr><th>Module</th><th>Writes (exclusively)</th><th>Publishes read model / view</th></tr></thead><tbody>
+<tr><td>identity</td><td>users, user_roles, auth_identities, passkeys, sessions, magic_links</td><td><code>v_user_public</code> (id, display name, status)</td></tr>
+<tr><td>preferences</td><td>user_preferences, notification_settings, devices, reader_schedule</td><td><code>getPreferences()</code></td></tr>
+<tr><td>profiles</td><td>writer_profiles, writer_applications, slug_redirects</td><td><code>v_writer_public</code> (no Stripe fields)</td></tr>
+<tr><td>content</td><td>letters, letter_revisions, letter_content_notes, notebooks, media, letter_media</td><td><code>renderForViewer()</code>, <code>v_letter_public</code></td></tr>
+<tr><td>curation</td><td>issues, issue_slots, curator_reviews, evergreen_pool, issue_changes</td><td><code>getIssue(date, mood)</code></td></tr>
+<tr><td>ration</td><td>rations, ration_slots, reads</td><td><code>hasCompleted(reader, letter)</code></td></tr>
+<tr><td>engagement</td><td>reactions, kept_lines, follows, saves, blocks, letter_stats</td><td><code>isBlocked()</code>, <code>followedWriters()</code></td></tr>
+<tr><td>messaging</td><td>threads, messages, inbox_deliveries</td><td>—</td></tr>
+<tr><td>billing</td><td>billing_customers, price_points, bundles, patronages, patronage_events, tips, charges, charge_lines, entitlements</td><td><code>entitlements.canRead()</code></td></tr>
+<tr><td>ledger</td><td>ledger_accounts, ledger_transactions, ledger_entries, payouts</td><td><code>writerBalance()</code>, statements</td></tr>
+<tr><td>moderation</td><td>reports, moderation_actions, appeals</td><td><code>isSanctioned()</code></td></tr>
+<tr><td>notifications</td><td>notifications</td><td>—</td></tr>
+<tr><td>platform (kernel)</td><td>outbox_events, inbox_events, idempotency_keys, audit_log, feature_flags</td><td>helpers only</td></tr>
+</tbody></table>
+<p>Enforcement: each module's repositories may only reference that module's tables (lint rule over the Drizzle schema imports), and an architecture test fails if a module imports another module's schema file.</p>
+
+<h2>3.5 Key relationships &amp; cardinality rules</h2>
+<table><thead><tr><th>Relationship</th><th>Cardinality</th><th>Enforced by</th></tr></thead><tbody>
+<tr><td>User → writer profile</td><td>0..1</td><td>PK = user_id</td></tr>
+<tr><td>Letter → published revision</td><td>0..1 current, many historical</td><td>FK + check on status</td></tr>
+<tr><td>Issue → slots</td><td>exactly 5 when scheduled or later</td><td>App validation + deferred trigger on status change</td></tr>
+<tr><td>Issue → writer</td><td>distinct</td><td><code>unique(issue_id, writer_id)</code></td></tr>
+<tr><td>Reader × evening date → ration</td><td>0..1</td><td><code>unique(reader_id, evening_date)</code></td></tr>
+<tr><td>Ration position → active slot</td><td>exactly 1</td><td>partial unique index</td></tr>
+<tr><td>Reader × writer → open patronage</td><td>0..1</td><td>partial unique index</td></tr>
+<tr><td>Reader × interval → open bundle</td><td>0..1</td><td>partial unique index</td></tr>
+<tr><td>Writer × period × currency → payout</td><td>0..1</td><td>unique constraint</td></tr>
+<tr><td>Provider event → processing</td><td>exactly once in effect</td><td>PK(provider, event_id) + idempotent handlers</td></tr>
+</tbody></table>
+
+<h2>3.6 History, deletion &amp; retention</h2>
+<table><thead><tr><th>Data</th><th>History strategy</th><th>On account deletion (after 30 days)</th><th>Retention</th></tr></thead><tbody>
+<tr><td>Letter text</td><td>Append-only revisions</td><td>Per BR-WR-07: withdrawn and purged, unless the writer chose to keep their letters up</td><td>Life of the letter + 30 days</td></tr>
+<tr><td>Ledger, charges, payouts</td><td>Append-only; corrections are reversing entries</td><td>Kept, with <code>reader_id</code> / <code>writer_id</code> mapped to a pseudonym</td><td>7 years (tax)</td></tr>
+<tr><td>Patronage changes</td><td><code>patronage_events</code></td><td>Pseudonymized</td><td>7 years</td></tr>
+<tr><td>Issues</td><td><code>issue_changes</code></td><td>Unaffected</td><td>Indefinite</td></tr>
+<tr><td>Rations, reads, reactions, saves, follows, blocks, kept lines</td><td>Rations use slot generations</td><td>Hard-deleted</td><td>Until deletion</td></tr>
+<tr><td>Messages</td><td>Immutable; can be hidden</td><td>Sender shown as "a former reader"; the deleted user's own message bodies are destroyed (delete the data key)</td><td>Until either party deletes</td></tr>
+<tr><td>Reports / moderation</td><td>Append-only actions</td><td>Pseudonymized</td><td>3 years (CSAM evidence: as legally required)</td></tr>
+<tr><td>Audit log</td><td>Append-only</td><td>Actor pseudonymized</td><td>3 years</td></tr>
+<tr><td>Sessions, devices, magic links</td><td>—</td><td>Hard-deleted immediately at request</td><td>90 days after expiry</td></tr>
+<tr><td>Outbox / inbox events</td><td>—</td><td>Payloads hold IDs only</td><td>30 days, then archived to S3 for 1 year</td></tr>
+</tbody></table>
+<p>Pseudonymization uses an HMAC of the user ID with a dedicated key, so finance can still join records for audits without knowing who the person was.</p>
+
+<h2>3.7 Transaction boundaries</h2>
+<div class="box key"><p><b>The rule:</b> one use case = one database transaction, which changes one aggregate and inserts its outbox events. Never call an external service inside a transaction. Never span two modules' writes in one transaction: the second module reacts to the event.</p></div>
+<table><thead><tr><th>Use case</th><th>Inside the transaction</th><th>After commit (async)</th></tr></thead><tbody>
+<tr><td>Publish letter</td><td>Lock letter row (<code>version</code> check) → set <code>published_revision_id</code>, status, reading time, anchors → outbox <code>LetterPublished</code></td><td>Search index, curation queue, notifications, re-anchor engagement</td></tr>
+<tr><td>Get Tonight (lazy build)</td><td>Compute evening date → <code>INSERT rations … ON CONFLICT (reader_id, evening_date) DO NOTHING RETURNING</code> → if inserted, insert 5 slots + outbox <code>RationBuilt</code>; otherwise read the existing ration</td><td>—</td></tr>
+<tr><td>Mood switch</td><td><code>SELECT … FOR UPDATE</code> ration → check <code>mood_switched_at is null</code> → supersede unread issue slots, insert new generation → set mood</td><td>—</td></tr>
+<tr><td>Start checkout</td><td>Upsert bundle intent + patronage <code>incomplete</code> + idempotency record</td><td>Create Stripe subscription or item (idempotency key = patronage ID); webhook activates</td></tr>
+<tr><td>Process provider webhook</td><td>Lock the <code>inbox_events</code> row (<code>FOR UPDATE SKIP LOCKED</code>) → compare <code>provider_version</code> → apply state to bundle/patronages/charges → write entitlements → outbox events → mark processed</td><td>Ledger posting, notifications</td></tr>
+<tr><td>Post ledger</td><td>Insert transaction (unique idempotency key) + balanced entries; the deferred trigger checks the sum</td><td>—</td></tr>
+<tr><td>Payout run (per writer)</td><td>Compute available balance → insert payout <code>pending</code> (unique period)</td><td>Stripe transfer with key = <code>payout.idempotency_key</code> → second transaction: set status, post ledger <code>writer_payable → writer_paid</code></td></tr>
+<tr><td>Moderator removes letter</td><td>Moderation action + letter status (the content module's command, called synchronously through its interface, in one transaction <i>owned by moderation's use case</i>, documented exception E-1) + audit row + outbox</td><td>Ration repair, curation, cache purge</td></tr>
+</tbody></table>
+<p><b>Isolation:</b> READ COMMITTED by default. Correctness comes from unique constraints, <code>SELECT … FOR UPDATE</code> on the aggregate root, and optimistic <code>version</code> columns, not from SERIALIZABLE. <b>Deadlock avoidance:</b> lock aggregates in a fixed order (reader → writer → letter), and keep transactions under 100 ms.</p>
+
+<h2>3.8 Indexes (essential set)</h2>
+<pre><code>reader_schedule (next_lamp_at)
+rations (reader_id, evening_date desc)
+ration_slots (letter_id) where state = 'active'               -- repair on withdrawal
+reads (reader_id) include (letter_id) where completed_at is not null
+letters (writer_id, published_at desc) where status = 'published'
+letters using gin (search_vector)
+writer_profiles using gin (pen_name_normalized gin_trgm_ops)
+issue_slots (letter_id)
+follows (writer_id)                 -- fan-out on publish
+patronages (writer_id, status)      -- studio patrons, fan-out
+entitlements (reader_id, writer_id, valid_until) where status in ('active','grace')
+charges (reader_id, created_at desc)
+ledger_entries (account_id, available_at)
+outbox_events (occurred_at) where published_at is null
+inbox_events (received_at) where processed_at is null
+notifications (not_before) where status = 'queued'
+reports (status, priority, created_at)</code></pre>
+
+<h2 class="chapter">3.9 Data structures &amp; algorithms</h2>
+
+<h3>a) Letter document and sentence anchors</h3>
+<p>The body is a ProseMirror JSON document defined by <code>@hs/editor-schema</code>. Every block node gets a stable <code>id</code> (nanoid, 10 characters) when it's created, and keeps it through edits, splits (the second half gets a new ID) and moves. At publish the server derives:</p>
+<ul>
+<li><code>body_text</code>: plain text with block separators (used for search, preview and word count).</li>
+<li><code>anchors</code>: for each block, sentences from <code>Intl.Segmenter(locale, { granularity: "sentence" })</code>. Each sentence becomes <code>{ id: blockId + ":" + h8, blockId, start, end, h8 }</code>, where <code>h8</code> is the first 8 hex characters of SHA-256 of the normalized sentence (NFKC, lowercase, collapsed whitespace).</li>
+</ul>
+<p><b>Re-anchoring on republish</b> (EX-12), per old anchor:</p>
+<pre><code>1. same blockId and same h8 exists in new revision  → keep id (exact)
+2. same blockId: best new sentence by trigram Jaccard similarity ≥ 0.6 → remap id
+3. any block: exact h8 match (sentence moved) → remap id
+4. otherwise → mark reactions orphaned (kept in writer totals, not highlightable)
+Cost: O(S) hashing + O(Sb²) per block for step 2 (Sb = sentences in a block, small) → linear in practice.</code></pre>
+
+<h3>b) Lamp time</h3>
+<pre><code>lampAt(reader, localDate):
+  p = preferences(reader)
+  if p.lamp_mode == 'fixed': t = p.lamp_fixed_time
+  elif p.geo_cell is null:   t = 18:00
+  else: t = clamp(sunsetNOAA(centroid(p.geo_cell), localDate, p.timezone), 17:00, 21:30)
+  return toInstant(localDate, t, p.timezone)   // Temporal: 'compatible' disambiguation
+                                               //  gap → shift forward, overlap → earlier (EX-02)</code></pre>
+<p>The NOAA solar position algorithm is pure, deterministic, and unit-tested against published sunset tables for 20 cities over a year (±2 minutes).</p>
+
+<h3>c) Evening date</h3>
+<pre><code>eveningDate(reader, now):
+  tz = preferences(reader).timezone
+  today = toLocalDate(now, tz)
+  return now &gt;= lampAt(reader, today) ? today : today.minus(1 day)
+nextLamp(reader, now):
+  e = eveningDate(reader, now); return lampAt(reader, e.plus(1 day))</code></pre>
+<p>The function is pure and takes an injected <code>Clock</code>. <code>reader_schedule</code> caches <code>next_lamp_at</code> and is recomputed after each lamp and on every preference change.</p>
+
+<h3>d) Ration builder (BR-RA-05)</h3>
+<pre><code>build(reader, e, mood):
+  issue    = curation.getIssue(e, mood) ?? curation.evergreenIssue(e, mood)
+  excluded = ration.completedLetterIds(reader)           // set, O(1) lookup
+  blocked  = engagement.blockedWriterIds(reader)         // set
+  used     = ∅ writers; slots = []
+  eligible(l) = l.status=='published' ∧ l.id∉excluded ∧ l.writer∉blocked ∧ l.writer∉used
+                ∧ (l.visibility=='public' ∨ entitlements.canRead(reader, l.writer))
+
+  // 1) personal slots: patrons first, then follows; published in last 48h; max 2
+  personal = (letters of patronized writers ∪ letters of followed writers) where published_at ≥ now-48h
+  sort personal by (isPatron desc, published_at desc, hash(reader,l.id,e) asc)   // deterministic
+  for l in personal while |slots| &lt; 2: if eligible(l): take(l, source)
+
+  // 2) issue slots in curated order, then evergreen backfill, then adjacent moods (EX-04)
+  for l in issue.letters ++ evergreen(mood) ++ evergreen(adjacent(mood)):
+    if |slots| == 5: break
+    if eligible(l): take(l, sourceOf(l))
+
+  assert invariants(slots)        // INV-07: distinct writers, eligibility; throws → alert
+  return { slots, short: |slots| &lt; 5 }
+Complexity: O(P log P + I + E), P ≤ ~200, I = 5, E ≤ pool size scanned until filled.</code></pre>
+<p>Determinism matters: the same inputs always give the same ration, which makes property tests and incident replay possible.</p>
+
+<h3>e) Read detection</h3>
+<p>Clients send batched heartbeats every 15 s while the letter is in view: <code>{letterId, rationId?, maxProgress, activeSeconds}</code>. The server clamps <code>activeSeconds</code> to the wall-clock time since the previous heartbeat plus 2 s, keeps the maximum progress (monotonic), and sets <code>completed_at</code> once BR-RA-08 is met. This is an idempotent upsert on <code>reads</code>, and ration slot <code>read_at</code> is set in the same transaction.</p>
+
+<h3>f) Money allocation (BR-LD-02)</h3>
+<pre><code>allocateFee(lines[], fee):              // largest remainder method, integers only
+  total = Σ lines.amount
+  raw_i = fee × lines_i.amount / total
+  alloc_i = floor(raw_i); remainder = fee − Σ alloc_i
+  give +1 to the `remainder` lines with largest fractional part (tie: lower line id)
+split(line):
+  net = amount − alloc − tax
+  platform = roundHalfEven(net × 10 / 100); writer = net − platform
+Invariants (property-tested with fast-check):
+  Σ alloc_i == fee;  platform + writer == net;  all values ≥ 0 for amount ≥ fee+tax;  deterministic.</code></pre>
+
+<h3>g) Entitlement check</h3>
+<pre><code>canRead(reader, letter):
+  if letter.visibility == 'public' and letter.status == 'published': return FULL
+  if reader?.id == letter.writer_id: return FULL
+  if reader and activeEntitlementUntil(reader.id, letter.writer_id) &gt; now: return FULL
+  return PREVIEW
+activeEntitlementUntil: Redis ent:{r}:{w} (TTL 60s) → else
+  select max(valid_until) from entitlements where reader_id=$1 and writer_id=$2 and status in ('active','grace')</code></pre>
+
+<h3>h) Rate limiting</h3>
+<p>Sliding-window counters in Redis (a sorted set, or GCRA via <code>@fastify/rate-limit</code>), keyed by <code>{route-class}:{user|ip}</code>. Business quotas that must be exact (e.g. 3 messages per writer per day, BR-EN-04) are checked in Postgres inside the use-case transaction, not in Redis.</p>
+
+<h3>i) Aggregated writer stats</h3>
+<p>Reaction and kept-line writes add the letter ID to a Redis set <code>stats:dirty</code>. Every 5 minutes <code>stats.aggregate</code> pops the set and recomputes each dirty letter's row in <code>letter_stats</code> with one grouped query. This avoids hot-row contention on popular letters and keeps counts out of the reader write path entirely.</p>
+
+<h3>j) Search</h3>
+<p><code>search_vector = setweight(title,'A') || setweight(pen_name,'A') || setweight(subtitle,'B') || setweight(public_body,'C')</code>. For patron letters, the body weight is <b>always empty</b> (INV-18): the indexer builds the vector from <code>renderForViewer(anonymous)</code>. Ranking: <code>ts_rank_cd</code>, then <code>published_at desc</code>. There is no popularity signal. Writer lookup uses trigram similarity on the normalized pen name.</p>
+
+<h3>k) Pagination cursors</h3>
+<p>Opaque base64url of <code>{sortKey, id}</code>, signed with HMAC so clients can't tamper with them. Queries use <code>WHERE (sort_key, id) &lt; ($1, $2) ORDER BY sort_key DESC, id DESC LIMIT n+1</code>.</p>
+
+<h2>3.10 Migration rules (summary; full process in Part 5 §9.3)</h2>
+<ul>
+<li>Forward-only SQL files, never edited after they've been merged. Down-migrations aren't relied on; we roll forward.</li>
+<li>Expand → migrate → contract across at least 2 releases for any rename, drop or type change.</li>
+<li><code>CREATE INDEX CONCURRENTLY</code>; <code>lock_timeout = '5s'</code>; new <code>NOT NULL</code> columns get a default or are backfilled by a job first.</li>
+<li>Large data changes run as resumable worker jobs, not inside migrations.</li>
+</ul>
+</section>
+<section class="part">
+<div class="eyebrow">Engineering handbook · Part 4 of 5 · Areas 4 &amp; 6</div>
+<h1 class="part-title">Codebase structure &amp; <em>security</em></h1>
+<p class="lede">Code organized by business capability, with one home for every rule, and the controls that protect identities, data, files, secrets, endpoints and money.</p>
+<div class="meta"><span><b>Owner</b> Tech lead (structure) · Security owner (security)</span><span><b>Enforced by</b> ESLint boundaries · dependency-cruiser · architecture tests · route policy test</span></div>
+
+<h2>4.1 Repository layout</h2>
+<pre><code>harystyles/
+├─ apps/
+│  ├─ web/                    Next.js — route groups: (reader) (studio) (marketing) (auth)
+│  │  └─ src/features/&lt;feature&gt;/   components, hooks (generated API hooks), copy
+│  ├─ mobile/                 Expo — app/ (Expo Router screens), src/features/&lt;feature&gt;/
+│  └─ console/                Next.js — internal: curation, moderation, finance
+├─ services/
+│  └─ core/                   the backend (one codebase, two entrypoints)
+│     ├─ src/entry/api.ts     Fastify bootstrap: plugins, auth, route registry
+│     ├─ src/entry/worker.ts  pg-boss bootstrap: job registry, schedulers, outbox relay
+│     ├─ src/kernel/          clock, ids, money, errors, outbox, idempotency, audit, tx, logger
+│     ├─ src/modules/
+│     │  ├─ identity/  preferences/  profiles/  content/  curation/  ration/
+│     │  ├─ engagement/  messaging/  billing/  ledger/  moderation/
+│     │  └─ notifications/  search/  media/  admin/
+│     └─ db/
+│        ├─ migrations/       0001_init.sql … (forward-only)
+│        └─ seed/             seed-content.json (the single seed set — fixes design contradiction #8)
+├─ packages/
+│  ├─ contracts/              Zod schemas, enums, error codes, events → OpenAPI → generated client
+│  ├─ tokens/                 design tokens source → CSS vars, RN theme (3 themes × 3 type pairs)
+│  ├─ editor-schema/          ProseMirror schema + anchor utilities (shared web/mobile/server)
+│  ├─ ui-web/                 web primitives (Button, Card, Badge, Toast…) from the component catalog
+│  ├─ ui-native/              React Native primitives with the same names and props
+│  ├─ copy/                   all user-facing strings (ICU), voice rules linted
+│  ├─ test-kit/               factories, fake clock, fake gateways, scenario DSL
+│  └─ config/                 tsconfig, eslint, prettier presets
+├─ infra/terraform/           envs/{dev,staging,prod}, modules/{network,ecs,rds,…}
+├─ docs/                      handbook, adr/, runbooks/, modules index (generated)
+├─ AGENTS.md                  rules for AI agents and contributors (Part 5 §10.6)
+└─ CODEOWNERS</code></pre>
+
+<h2>4.2 Module anatomy</h2>
+<pre><code>services/core/src/modules/billing/
+├─ index.ts          PUBLIC SURFACE: commands, queries, event types, DTO types. Nothing else is importable.
+├─ domain/           pure TypeScript — entities, value objects, state machines, policies, rules.
+│                    No I/O, no framework imports, no Date.now() (uses Clock).
+├─ application/      use cases: validate → load → domain → persist → outbox, one transaction each.
+│                    Declares ports (interfaces) it needs: PatronageRepo, PaymentsGateway…
+├─ infra/            adapters: Drizzle repositories, Stripe gateway, webhook verifier, schema.ts (tables)
+├─ http/             routes: request/response schemas from @hs/contracts, policy, call use case, map DTO
+├─ jobs/             job + event handlers (thin: parse → call use case)
+├─ tests/            unit (domain), integration (application + real Postgres), contract
+└─ README.md         owner · responsibilities · rules implemented (BR/INV ids) · events in/out · tables</code></pre>
+<h3>Dependency rules (CI-enforced)</h3>
+<table><thead><tr><th>Layer</th><th>May import</th><th>Must not import</th></tr></thead><tbody>
+<tr><td>domain</td><td>own domain, <code>kernel</code> (types, money, clock interface)</td><td>application, infra, http, any other module, any framework</td></tr>
+<tr><td>application</td><td>own domain, <code>kernel</code>, other modules' <code>index.ts</code></td><td>infra (it depends on ports, not adapters), http</td></tr>
+<tr><td>infra</td><td>own application ports, own domain, drivers/SDKs</td><td>other modules' infra or tables</td></tr>
+<tr><td>http / jobs</td><td>own application, <code>@hs/contracts</code></td><td>infra directly, domain internals of other modules</td></tr>
+<tr><td>apps/*</td><td><code>packages/*</code> (contracts client, ui, tokens, copy)</td><td><code>services/*</code> (the network is the boundary)</td></tr>
+<tr><td>packages/*</td><td>other packages</td><td>apps, services</td></tr>
+</tbody></table>
+<p>Cycles between modules are forbidden (dependency-cruiser). If two modules need each other, one of them reacts to the other's event instead. Allowed sync module dependencies are declared in <code>docs/module-graph.md</code>, which is generated and checked in CI.</p>
+
+<h2>4.3 Allowed module dependency graph (sync)</h2>
+<pre><code>content      → profiles, media
+curation     → content, profiles                    (never billing — INV-10)
+ration       → curation, content, engagement, billing(entitlements.canRead), preferences
+engagement   → content
+messaging    → profiles, billing(entitlements), engagement(isBlocked)
+billing      → profiles, identity
+ledger       → (none; reacts to billing events)
+moderation   → content, profiles, messaging, identity
+notifications→ preferences, identity
+search       → content, profiles                   (reads public render only)
+admin        → orchestrates via other modules' index.ts; owns no business rules</code></pre>
+
+<h2 class="chapter">4.4 Rule index — the single home of each business rule</h2>
+<p>This table is how duplicated business logic is prevented. Before writing logic, look up its home. If a rule isn't listed, add it here in the same PR that implements it.</p>
+<table><thead><tr><th>Rule</th><th>Single home</th><th>Clients get it as</th></tr></thead><tbody>
+<tr><td>Can this viewer read this letter? (BR-LE-05, INV-01)</td><td><code>billing/entitlements.canRead</code> + <code>content.renderForViewer</code></td><td><code>access</code> block + already-truncated <code>body</code></td></tr>
+<tr><td>Preview length</td><td><code>content/domain/preview.ts</code></td><td>Truncated body</td></tr>
+<tr><td>Prices (BR-BI-01)</td><td><code>billing/domain/pricing.ts</code> (reads <code>price_points</code>)</td><td><code>cta.price</code>, checkout response</td></tr>
+<tr><td>Split and fee allocation (BR-LD-02)</td><td><code>ledger/domain/allocate.ts</code></td><td>Studio earnings from the ledger</td></tr>
+<tr><td>Evening date, lamp time (BR-RA-01/02)</td><td><code>ration/domain/clock.ts</code>, <code>lamp.ts</code></td><td><code>bootstrap.lamp</code> {eveningDate, nextLampAt}</td></tr>
+<tr><td>Ration composition (BR-RA-05)</td><td><code>ration/domain/builder.ts</code></td><td><code>GET /tonight</code></td></tr>
+<tr><td>Read completion (BR-RA-08)</td><td><code>ration/domain/reading.ts</code></td><td>Slot <code>readAt</code></td></tr>
+<tr><td>Issue validity (BR-CU-02/03/07)</td><td><code>curation/domain/issue-policy.ts</code></td><td>Console validation messages</td></tr>
+<tr><td>Who sees counts (BR-EN-02, INV-02)</td><td>DTO schemas <code>contracts/views/reader.*</code> vs <code>contracts/views/writer.*</code></td><td>Counts only exist in writer views</td></tr>
+<tr><td>Message quotas (BR-EN-04/05)</td><td><code>messaging/domain/quota.ts</code></td><td>Error codes</td></tr>
+<tr><td>Notification permission, quiet hours, caps (BR-NO)</td><td><code>notifications/domain/gate.ts</code></td><td>—</td></tr>
+<tr><td>State machines (writer, letter, issue, patronage)</td><td><code>&lt;module&gt;/domain/*-state.ts</code></td><td>Status enums</td></tr>
+<tr><td>Permissions (§1.2)</td><td><code>&lt;module&gt;/domain/policies.ts</code>, registered per route</td><td><code>bootstrap.capabilities</code> (UI hints only, never trusted)</td></tr>
+<tr><td>Moods, glyphs, content notes, themes, type pairs</td><td><code>@hs/contracts/enums.ts</code></td><td>Imported enums</td></tr>
+<tr><td>User-facing copy and voice</td><td><code>@hs/copy</code></td><td>Message keys</td></tr>
+<tr><td>Design tokens, modes and pairs</td><td><code>@hs/tokens</code></td><td>Generated CSS / RN theme</td></tr>
+</tbody></table>
+<p>Clients may import <b>enums, schemas and copy</b>. They must not import or reimplement <b>rules</b>. A client that needs a derived value (e.g. "can I show the patron button?") gets it from the API response.</p>
+
+<h2>4.5 Contracts pipeline</h2>
+<ol>
+<li>Request/response schemas, enums, error codes and event payloads are written in Zod in <code>packages/contracts</code>.</li>
+<li>The API registers routes with these schemas: requests are validated (unknown keys rejected), and responses are <b>serialized through the schema</b>, so undeclared fields are stripped. This protects INV-01, INV-02 and INV-03.</li>
+<li>CI generates <code>openapi.json</code> and the TypeScript client. The PR fails if the generated files aren't committed or if <code>openapi-diff</code> reports a breaking change in <code>/v1</code>.</li>
+<li>Web and mobile use only the generated client (wrapped in TanStack Query hooks).</li>
+</ol>
+
+<h2>4.6 Naming &amp; code conventions</h2>
+<table><thead><tr><th>Thing</th><th>Convention</th><th>Example</th></tr></thead><tbody>
+<tr><td>Files</td><td>kebab-case</td><td><code>issue-policy.ts</code></td></tr>
+<tr><td>Use cases</td><td>Imperative verb-noun</td><td><code>startPatronage</code>, <code>switchMood</code></td></tr>
+<tr><td>Events</td><td>Past tense, PascalCase</td><td><code>PatronageLapsed</code></td></tr>
+<tr><td>Jobs</td><td><code>module.verb-noun</code></td><td><code>payout.run</code></td></tr>
+<tr><td>Error codes</td><td><code>MODULE_REASON</code></td><td><code>RATION_MOOD_ALREADY_SWITCHED</code></td></tr>
+<tr><td>Feature flags</td><td><code>area.feature</code> + kind + owner + expiry</td><td><code>reader.save-as-card</code></td></tr>
+<tr><td>DB</td><td>snake_case; JSON is camelCase; mapping only in infra/http</td><td><code>reading_minutes</code> ↔ <code>readingMinutes</code></td></tr>
+<tr><td>Rule references</td><td>Comment + test name</td><td><code>// BR-RA-07</code></td></tr>
+</tbody></table>
+<ul>
+<li>Errors: domain code throws typed <code>DomainError(code)</code>. The HTTP layer maps it to problem+json. No string matching on messages.</li>
+<li>No <code>Date.now()</code>, <code>new Date()</code> or <code>Math.random()</code> in domain code. Inject <code>Clock</code> and <code>Random</code> (lint rule).</li>
+<li>No raw SQL outside <code>infra/</code>. Parameterized queries only (Drizzle or the <code>sql``</code> tag).</li>
+<li>Comments explain <i>why</i>, and reference rule IDs. The code says <i>what</i>.</li>
+</ul>
+
+<h2>4.7 Frontend structure</h2>
+<ul>
+<li><b>Feature folders</b> mirror the modules: <code>tonight</code>, <code>moods</code>, <code>reader</code>, <code>writer-page</code>, <code>shelf</code>, <code>letters-inbox</code>, <code>patronage</code>, <code>studio-*</code>, <code>settings</code>. Each folder holds its screens/routes, components and hooks, so it can be removed cleanly.</li>
+<li><b>UI primitives</b> (<code>ui-web</code>, <code>ui-native</code>) share names and props, and consume only tokens. Product code never uses raw colors or font names.</li>
+<li><b>Server state</b> lives only in TanStack Query. <b>UI state</b> stays local, plus one small store for session and preferences.</li>
+<li><b>Web rendering:</b> public reader pages are server components (SEO, CDN-cacheable when anonymous). Studio and Shelf are client-heavy and private.</li>
+<li><b>Mobile offline:</b> tonight's ration and its letters (as the API returned them, already access-shaped) are persisted for offline reading. Heartbeats are queued and replayed.</li>
+</ul>
+
+<h2 class="chapter">6.1 Security model &amp; threat summary</h2>
+<table><thead><tr><th>Asset</th><th>Threat</th><th>Controls</th></tr></thead><tbody>
+<tr><td>Patron-only text</td><td>Leak via API, server-rendered HTML, cache, search, OG image, email or scraping</td><td>Single render path, schema-serialized DTOs, <code>private</code> cache headers, leak-scanner tests, entitlement-gated signed media URLs</td></tr>
+<tr><td>Accounts</td><td>Takeover (phishing, token theft, linking abuse)</td><td>Passwordless, passkeys, short-lived tokens, refresh rotation with reuse detection, verified-email-only linking, new-device notice</td></tr>
+<tr><td>Money</td><td>Card testing, self-dealing, double payout, refund abuse</td><td>Stripe Radar, checkout rate limits, self-patron check (BR-BI-02), ledger idempotency, refund limits</td></tr>
+<tr><td>Private messages</td><td>Unauthorized reading (including by staff)</td><td>Envelope encryption, report-gated moderator access, access audit</td></tr>
+<tr><td>Staff tools</td><td>Insider abuse, compromised staff account</td><td>SSO + hardware-key MFA, least privilege roles, break-glass flow, full audit, separate console origin</td></tr>
+<tr><td>Infrastructure</td><td>Secret leakage, over-privileged services</td><td>Secrets Manager, per-service IAM roles, DB role separation, gitleaks</td></tr>
+<tr><td>Availability</td><td>Abuse traffic, bots at lamp time</td><td>WAF, rate limits, CDN, autoscaling, cheap anonymous paths</td></tr>
+<tr><td>Readers in crisis</td><td>Harm from content or messages</td><td>Content notes, interstitials, classifier, P0 escalation (BR-MO)</td></tr>
+</tbody></table>
+
+<h2>6.2 Identity, sessions &amp; tokens</h2>
+<table><thead><tr><th>Client</th><th>Mechanism</th></tr></thead><tbody>
+<tr><td>Web (reader, studio)</td><td>Server-side session. Cookie <code>__Host-hs_sid</code>: HttpOnly, Secure, SameSite=Lax, Path=/. 30-day rolling, 90-day absolute. CSRF: SameSite plus a double-submit token header on every state-changing request.</td></tr>
+<tr><td>Mobile</td><td>Access JWT (EdDSA, 15 min, contains <code>sub</code>, <code>sid</code>, <code>roles</code>, <code>kid</code>) + opaque refresh token (60 days, rotated on every use, stored hashed). Re-use of an old refresh token revokes the whole session family. Tokens are kept in the Keychain/Keystore via SecureStore.</td></tr>
+<tr><td>Console (staff)</td><td>Separate origin. Requires a staff role and a WebAuthn MFA within the last 12h. Sessions last 12h.</td></tr>
+</tbody></table>
+<ul>
+<li>Magic links: 32 random bytes, stored hashed, 15-minute expiry, single use. The response is the same whether or not the email exists (no account enumeration).</li>
+<li>OAuth: PKCE plus state/nonce. Apple's private relay emails are supported. Linking only on verified email (BR-ID-02).</li>
+<li>Step-up re-authentication (≤10 min) for email change, account deletion, payout onboarding links and role grants.</li>
+<li>JWT signing keys rotate every 90 days (old keys accepted until their tokens expire). Revoking a session immediately blocks refresh; access tokens die within 15 minutes.</li>
+</ul>
+
+<h2>6.3 Authorization</h2>
+<ul>
+<li><b>Deny by default.</b> Every route registration must declare <code>policy</code> (e.g. <code>Policies.writerOwnsLetter</code>, <code>Policies.role("curator")</code>, <code>Policies.public</code>). The <b>route policy test</b> loads the registry and fails CI if any route lacks a policy, or if any <code>/admin</code> route allows non-staff.</li>
+<li><b>Object-level checks</b> (protection against users accessing other users' objects by changing IDs): repositories for user-owned data always take the actor, e.g. <code>studioLetters.findForWriter(actorId, letterId)</code>. A missing row returns <code>404</code>, not <code>403</code> (doesn't reveal that the object exists).</li>
+<li><b>Capabilities</b> sent to clients (<code>bootstrap.capabilities</code>) are hints for showing or hiding UI. They are never trusted on the server.</li>
+<li><b>Postgres row-level security</b> is enabled as defense in depth on <code>messages</code>, <code>kept_lines</code> and <code>reads</code>. The app sets <code>app.user_id</code> per transaction. The primary enforcement remains the application policies.</li>
+</ul>
+
+<h2>6.4 Endpoint hardening</h2>
+<table><thead><tr><th>Control</th><th>Standard</th></tr></thead><tbody>
+<tr><td>Input validation</td><td>Zod strict schemas. Unknown fields rejected. String lengths bounded. Body limit 256 KB (letter save: 2 MB).</td></tr>
+<tr><td>Output</td><td>Serialized through response schemas only (no returning whole ORM rows).</td></tr>
+<tr><td>Rate limits</td><td>Auth: 5/min per IP and 10/hour per email · checkout: 10/hour per user · tips: 20/day · messages: BR-EN-04 · reactions: 120/min · search: 60/min · anonymous reads: 300/min per IP · admin: 600/min per staff member.</td></tr>
+<tr><td>Webhooks</td><td>Provider signature check, ±5 min timestamp tolerance, stored before processing, never trusted for amounts without re-fetching from the provider in billing-critical paths.</td></tr>
+<tr><td>CORS</td><td>Allow-list: web, console and marketing origins. Mobile doesn't need CORS.</td></tr>
+<tr><td>Headers</td><td>HSTS (preload), CSP with nonces (no <code>unsafe-inline</code> scripts), <code>frame-ancestors 'none'</code>, <code>Referrer-Policy: strict-origin-when-cross-origin</code>, <code>Permissions-Policy</code> minimal.</td></tr>
+<tr><td>Errors</td><td>No stack traces or internal IDs leaked. A <code>requestId</code> is always returned.</td></tr>
+<tr><td>Enumeration</td><td>Uniform responses for auth and existence checks. Opaque, signed cursors.</td></tr>
+<tr><td>Timeouts</td><td>Request timeout 15 s; DB statement timeout 5 s (API), 60 s (jobs).</td></tr>
+</tbody></table>
+
+<h2>6.5 Data protection</h2>
+<table><thead><tr><th>Class</th><th>Examples</th><th>Controls</th></tr></thead><tbody>
+<tr><td>Restricted</td><td>Message bodies, session secrets, signing keys, CSAM evidence</td><td>Application-level envelope encryption (KMS data keys) for messages; secrets only in Secrets Manager; access audited</td></tr>
+<tr><td>Confidential</td><td>Email, reading history, reactions, kept lines, follows, payment references, location cell</td><td>Encrypted at rest (RDS/KMS), never in logs, exportable and deletable, minimized</td></tr>
+<tr><td>Internal</td><td>Writer stats, curation notes, audit log</td><td>Role-gated</td></tr>
+<tr><td>Public</td><td>Public letters, pen names, notebooks</td><td>Integrity controls only</td></tr>
+</tbody></table>
+<ul>
+<li><b>Card data never touches our servers</b> (Stripe Elements/PaymentSheet → PCI SAQ-A). Writers' legal identity and bank data stay at Stripe (BR-WR-05).</li>
+<li>IP addresses are stored only as an HMAC with a monthly-rotating salt (for abuse correlation).</li>
+<li>Logger redaction paths: <code>authorization</code>, <code>cookie</code>, <code>*.token</code>, <code>*.email</code>, <code>body.text</code>, <code>message.body</code>, <code>payment*</code>. A CI test feeds known secrets through the logger and asserts they're redacted (INV-17).</li>
+<li>TLS 1.2+ everywhere, including internal hops. Database connections use <code>sslmode=verify-full</code>.</li>
+</ul>
+
+<h2>6.6 Files</h2>
+<ul>
+<li>Presigned POST with <code>content-length-range</code> and an exact <code>Content-Type</code>. The server re-checks magic bytes and rejects SVG, HTML and anything executable.</li>
+<li>EXIF/GPS metadata stripped. Malware scan (ClamAV) in the worker. Images re-encoded, which neutralizes polyglot files.</li>
+<li>Private bucket for patron-letter media. Signed URLs only after the entitlement check, 10-minute expiry, no listing permission anywhere.</li>
+<li>Object keys contain no personal data. Avatars use content-hash keys.</li>
+</ul>
+
+<h2>6.7 Secrets &amp; infrastructure access</h2>
+<ul>
+<li>AWS Secrets Manager per environment, injected at task start. Nothing in the repo or in images (gitleaks pre-commit + CI). Rotation: database credentials 90 days, API keys on staff departure or yearly.</li>
+<li>IAM: separate task roles for <code>api</code>, <code>worker</code> and <code>web</code>, each with only the S3 prefixes, KMS keys and secrets it needs. The web task can't reach the database at all (network policy).</li>
+<li>Database roles: <code>app_rw</code> (DML only, no DDL; INSERT-only on ledger and audit tables), <code>migrator</code> (DDL, used only by the migration step), <code>analytics_ro</code> (only views without personal data). Nobody connects to production as superuser; break-glass access is time-boxed and audited.</li>
+<li>Production access requires SSO + MFA. Shell access only through audited sessions (SSM). No direct database access from laptops.</li>
+</ul>
+
+<h2>6.8 Business-operation security (fraud &amp; abuse)</h2>
+<table><thead><tr><th>Abuse</th><th>Mitigation</th></tr></thead><tbody>
+<tr><td>Card testing through tips or checkout</td><td>Radar rules, checkout requires a verified email, velocity limits, CAPTCHA (Turnstile) after anomalies</td></tr>
+<tr><td>Self-patronage / circular funding</td><td>BR-BI-02, payment-fingerprint comparison against the writer's own account, finance review queue for clusters</td></tr>
+<tr><td>Buying placement with fake patrons</td><td>Impossible by design: curation has no billing input (INV-10)</td></tr>
+<tr><td>Refund farming</td><td>One self-serve refund per 12 months; patterns flagged</td></tr>
+<tr><td>Scraping patron content</td><td>No bulk endpoints, per-user read rate limits, anomaly alerts. Optional future: per-patron invisible watermark.</td></tr>
+<tr><td>Message spam or harassment</td><td>Quotas, blocks, classifier, sanctions</td></tr>
+<tr><td>Report brigading</td><td>BR-MO-07 thresholds, reporter reputation weighting</td></tr>
+</tbody></table>
+
+<h2>6.9 Mobile-specific</h2>
+<ul>
+<li>No secrets in the app bundle. All privileged operations go through the API.</li>
+<li>Universal Links / App Links with verified domains. Deep-link parameters are validated as untrusted input.</li>
+<li>The editor WebView loads only bundled assets (no remote URLs, JavaScript bridge allow-list).</li>
+<li>Certificate pinning: <b>not used</b> (the risk of locking users out outweighs the benefit; ADR-011). We rely on TLS plus short-lived tokens.</li>
+<li>Screenshots are allowed (it's a reading app). Patron content cached offline is stored in app-private storage and cleared on logout or when the entitlement is lost.</li>
+</ul>
+
+<h2>6.10 Privacy &amp; compliance</h2>
+<ul>
+<li>GDPR / UK GDPR / CCPA: lawful bases recorded, data export (BR-PR-06), deletion (BR-ID-04), processors listed with data-processing agreements (Stripe, AWS, Postmark, Sentry, Grafana, Expo, classifier provider).</li>
+<li>Analytics: first-party, cookie-less, aggregated product analytics. No advertising or tracking SDKs. App store privacy labels kept in sync with the actual data flows.</li>
+<li>PCI DSS SAQ-A attestation yearly. Child-safety and CSAM obligations follow a runbook written with counsel.</li>
+<li>Security review is required for changes to: auth, policies, billing, ledger, messaging, files, the admin console, and new integrations.</li>
+</ul>
+
+<h2>6.11 Endpoint security checklist (every PR adding or changing a route)</h2>
+<ol>
+<li>Policy declared, with a negative test for the wrong role, the wrong owner and anonymous access.</li>
+<li>Request schema strict, with bounded lengths. Response schema contains no counts, legal identity or full patron body unless the policy guarantees it.</li>
+<li>Rate-limit class assigned. <code>Idempotency-Key</code> required if the route creates money, messages, reports or patronages.</li>
+<li>Audit entry if the actor is staff or the action touches money or sanctions.</li>
+<li>Errors use registered codes. Nothing sensitive is logged.</li>
+<li>Generated client and OpenAPI updated, with no breaking diff.</li>
+</ol>
+</section>
+<section class="part">
+<div class="eyebrow">Engineering handbook · Part 5 of 5 · Areas 7–10</div>
+<h1 class="part-title">Testing, scalability, operations &amp; <em>governance</em></h1>
+<p class="lede">How we prove features work alone and together, scale only what needs it, ship and recover safely, and keep the system understandable for every person and AI agent who changes it.</p>
+<div class="meta"><span><b>Owners</b> QA lead · Platform lead · Tech lead</span><span><b>Covers</b> Areas 7 testing · 8 scalability · 9 deployment &amp; operations · 10 documentation &amp; governance</span></div>
+
+<h2>7.1 Test strategy</h2>
+<table><thead><tr><th>Layer</th><th>Scope</th><th>Tooling</th><th>Gate</th></tr></thead><tbody>
+<tr><td>Domain unit</td><td>Pure rules: state machines, policies, builder, allocation, clocks, preview, quotas</td><td>Vitest + fake <code>Clock</code>/<code>Random</code></td><td>≥90% line coverage in <code>domain/</code>; every BR/INV ID referenced by at least one test</td></tr>
+<tr><td>Property-based</td><td>Money allocation, ration builder, evening date and lamp time, anchors, cursor encoding</td><td>fast-check (1,000 runs in CI, 100k nightly)</td><td>Required for any change in these files</td></tr>
+<tr><td>Integration</td><td>Use cases against real Postgres + Redis, with fake external gateways</td><td>Vitest + Testcontainers</td><td>Every use case: happy path, each error code, idempotent replay</td></tr>
+<tr><td>Contract</td><td>OpenAPI vs. implementation; backward compatibility for supported app versions</td><td>Schema snapshot tests, <code>openapi-diff</code> against every tag in the support window</td><td>No breaking diff in <code>/v1</code></td></tr>
+<tr><td>Security</td><td>Route policy registry, IDOR suite (actor A can't touch B's objects), leak scanner (INV-01/02/18), logger redaction, ZAP baseline, dependency and secret scans</td><td>Custom tests + OWASP ZAP + gitleaks + pnpm audit</td><td>Zero failures</td></tr>
+<tr><td>Cross-feature scenarios</td><td>FX-01…FX-14 and EX-01…EX-15 as executable stories through the API</td><td>Scenario DSL in <code>@hs/test-kit</code></td><td>All green on every merge</td></tr>
+<tr><td>Billing end-to-end</td><td>Real Stripe test mode with test clocks: renewals, failed payments, proration, refunds, disputes, payouts</td><td>Nightly suite</td><td>Nightly must pass before a production promote</td></tr>
+<tr><td>Web end-to-end</td><td>Critical journeys: onboarding, Tonight, read + react + keep, checkout, cancel, publish</td><td>Playwright (Chromium, WebKit, Firefox)</td><td>All green</td></tr>
+<tr><td>Mobile end-to-end</td><td>Same journeys plus offline, push deep links, upgrade prompt</td><td>Maestro on iOS + Android simulators (EAS)</td><td>All green on the release branch</td></tr>
+<tr><td>Visual (modes &amp; pairs)</td><td>8 key screens × 3 themes × 3 type pairs = 72 snapshots per platform; component catalog states</td><td>Playwright screenshots / Storybook + Chromatic-style diffs</td><td>Diffs reviewed and approved</td></tr>
+<tr><td>Accessibility</td><td>axe on every web e2e page; RN accessibility props lint; contrast tests on tokens for every theme</td><td>axe-core, eslint-plugin-react-native-a11y</td><td>Zero serious violations</td></tr>
+<tr><td>Performance</td><td>"Lamp wave" load, letter-page web vitals, bundle budgets</td><td>k6, Lighthouse CI</td><td>Budgets in §8.2</td></tr>
+<tr><td>Migration</td><td>Apply pending migrations to an anonymized production snapshot; time them; lint for locking</td><td>squawk + staging rehearsal</td><td>No exclusive lock over 2 s</td></tr>
+<tr><td>Failure / chaos</td><td>Duplicate and out-of-order webhooks, provider 500s and timeouts, Redis down, worker killed mid-job, DB failover</td><td>Fault injection in integration + staging game days (quarterly)</td><td>System converges, no double effects</td></tr>
+</tbody></table>
+
+<h2>7.2 Test data &amp; determinism</h2>
+<ul>
+<li><b>One seed set:</b> <code>db/seed/seed-content.json</code> (writers, letters, notebooks, issues) feeds local development, staging demos, end-to-end tests and the design canvas, so names and moods never diverge again.</li>
+<li>Factories in <code>@hs/test-kit</code> build valid aggregates by default (<code>aWriter().approved().withPatrons(3)</code>).</li>
+<li>Time is always injected. Tests run in random time zones (<code>TZ</code> randomized per CI shard) to catch hidden local-time assumptions.</li>
+<li>External gateways have in-memory fakes that implement the same port, plus a "chaos" mode (delays, duplicates, reordering).</li>
+</ul>
+
+<h2>7.3 Critical scenario catalogue (excerpt)</h2>
+<table><thead><tr><th>ID</th><th>Scenario</th><th>Expected</th></tr></thead><tbody>
+<tr><td class="id">SC-01</td><td>Readers in Auckland (UTC+13) and Honolulu (UTC−10) on the same evening date</td><td>Both get that date's issue. Lock happened before Auckland's lamp time.</td></tr>
+<tr><td class="id">SC-02</td><td>Spring-forward day; fixed lamp time 02:30 is impossible (clamped range) / sunset during the DST gap</td><td>Valid lamp instant; one ration</td></tr>
+<tr><td class="id">SC-03</td><td>Two devices call <code>GET /tonight</code> at the same millisecond</td><td>The same ration ID; 5 slots; one <code>RationBuilt</code> event</td></tr>
+<tr><td class="id">SC-04</td><td>A writer withdraws a letter that is in 10,000 built rations</td><td>All unread slots replaced within 5 min; read slots tombstoned; no reader gets a duplicate writer</td></tr>
+<tr><td class="id">SC-05</td><td><code>invoice.paid</code> arrives before <code>customer.subscription.created</code></td><td>Processed in provider order; final state correct; no lost entitlement</td></tr>
+<tr><td class="id">SC-06</td><td>The same webhook delivered 5 times concurrently</td><td>One state change, one ledger transaction</td></tr>
+<tr><td class="id">SC-07</td><td>Refund after the month's payout</td><td>Negative writer balance; recovered next period; ledger balanced</td></tr>
+<tr><td class="id">SC-08</td><td>Visibility public→patron while the letter is in a scheduled issue</td><td><code>409 CONTENT_IN_ACTIVE_ISSUE</code></td></tr>
+<tr><td class="id">SC-09</td><td>Mood switch after reading 2 letters, one of which is a personal slot</td><td>Read slots and the personal slot kept; others rebuilt; a second switch is rejected</td></tr>
+<tr><td class="id">SC-10</td><td>App version n−3 calls the API</td><td><code>426</code> with upgrade link; n−2 works</td></tr>
+<tr><td class="id">SC-11</td><td>Logged-out visitor opens a shared patron-letter link</td><td>Preview only in HTML, OG image, JSON-LD and API; signed media URLs absent</td></tr>
+<tr><td class="id">SC-12</td><td>Kept line on a letter later edited, then withdrawn</td><td>Snapshot intact on the Shelf; card still renders from the snapshot</td></tr>
+<tr><td class="id">SC-13</td><td>Reader blocks a writer who is in tonight's ration and is their patron</td><td>Slot replaced; messages closed both ways; patronage intact with a prompt</td></tr>
+<tr><td class="id">SC-14</td><td>Writer suspended mid-cycle with 50 patrons in mixed currencies</td><td>Items paused; prorated credits per currency; ledger balanced per currency</td></tr>
+<tr><td class="id">SC-15</td><td>Account deletion with active patronages, an open report and messages</td><td>Billing stopped at once; purge at 30 days; report retains pseudonymized references</td></tr>
+<tr><td class="id">SC-16</td><td>Paper theme + all_serif saved on web, then mobile cold start offline</td><td>Mobile renders cached preferences; reconciles on reconnect; no flash on web server render</td></tr>
+<tr><td class="id">SC-17</td><td>Search for a phrase that appears only in a patron letter's body</td><td>No result</td></tr>
+<tr><td class="id">SC-18</td><td>Self-harm content note</td><td>Interstitial once per reader per letter on web and mobile</td></tr>
+<tr><td class="id">SC-19</td><td>Payout account restricted on the 5th</td><td>Payout skipped; balance carried; notice sent; retried next run</td></tr>
+<tr><td class="id">SC-20</td><td>Reader in quiet hours when the lamp-lit push would fire</td><td>Push deferred or dropped per BR-NO-02; no violation</td></tr>
+</tbody></table>
+
+<h2>7.4 CI quality gates (pull request)</h2>
+<ol>
+<li>Typecheck · lint (including boundaries, no-Date in domain, copy voice lint) · format</li>
+<li>Unit + property + integration tests (sharded, random time zone)</li>
+<li>Generated contracts committed · <code>openapi-diff</code> clean · event schema compatibility</li>
+<li>Route policy test · IDOR suite · leak scanner · secret scan · dependency and license audit</li>
+<li>Migration lint (squawk) · module graph check · rule traceability report (rules without tests are listed; INV-* without a test fails the build)</li>
+<li>Web: build, bundle budgets, Lighthouse CI on reader pages, Playwright smoke + visual diffs</li>
+<li>CODEOWNERS approval (two approvals for <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, policies, migrations, infrastructure)</li>
+</ol>
+<div class="box"><h4>Definition of done</h4><p>Rule IDs referenced · tests at the right layers (including a negative authorization test) · scenario added if the change touches a feature boundary · docs updated (module README, rule index, handbook if a rule changed, ADR if a decision changed) · flags have an owner and expiry · observability (log/metric) for new background behavior · works in all 3 themes and 3 type pairs · accessible.</p></div>
+
+<h2 class="chapter">8.1 Workload model</h2>
+<table><thead><tr><th>Quantity</th><th>M12 (brief targets)</th><th>Planning ×10 (≈ year 3)</th></tr></thead><tbody>
+<tr><td>Monthly active readers</td><td>60,000</td><td>600,000</td></tr>
+<tr><td>Daily active readers (≈40%)</td><td>24,000</td><td>240,000</td></tr>
+<tr><td>Peak concurrent readers (largest time-zone cluster, 30 min after lamp)</td><td>≈5,000</td><td>≈50,000</td></tr>
+<tr><td>Ration builds at peak</td><td>≈3/s</td><td>≈30/s</td></tr>
+<tr><td>Reading heartbeats (every 15 s, batched)</td><td>≈330/s</td><td>≈3,300/s</td></tr>
+<tr><td>Other API calls at peak</td><td>≈100/s</td><td>≈1,000/s</td></tr>
+<tr><td>Letters stored</td><td>≈60k</td><td>≈1M</td></tr>
+<tr><td>Reaction rows / year</td><td>≈20M</td><td>≈200M</td></tr>
+<tr><td>Charges / month</td><td>≈11k (bundled)</td><td>≈110k</td></tr>
+</tbody></table>
+<p>The heaviest path is reading heartbeats, not content. Lamp waves are spread out by time zones, so global peaks stay modest. One API cluster and one Postgres primary comfortably handle M12. The ×10 scenario needs read replicas, partitioning of high-volume tables, and heartbeat coalescing, not microservices.</p>
+
+<h2>8.2 Performance budgets</h2>
+<table><thead><tr><th>Metric</th><th>Budget</th><th>Measured by</th></tr></thead><tbody>
+<tr><td>API p95 / p99</td><td>Reads 200/500 ms · writes 400/800 ms</td><td>OpenTelemetry per route</td></tr>
+<tr><td><code>GET /tonight</code> p95 (including lazy build)</td><td>250 ms</td><td>Route metric + build histogram</td></tr>
+<tr><td>Letter page (anonymous, CDN)</td><td>TTFB &lt; 300 ms · LCP &lt; 2.5 s on 4G · CLS &lt; 0.05</td><td>Lighthouse CI, real-user monitoring</td></tr>
+<tr><td>Web JS per route</td><td>Reader &lt; 120 KB gzip · studio editor &lt; 350 KB</td><td>Bundle budgets in CI</td></tr>
+<tr><td>Mobile</td><td>Cold start &lt; 2 s (mid-range Android) · tonight from cache &lt; 300 ms</td><td>Release build profiling</td></tr>
+<tr><td>Async</td><td>Outbox lag p95 &lt; 5 s · webhook processed p95 &lt; 30 s · ration repair &lt; 5 min</td><td>Queue metrics</td></tr>
+<tr><td>Database</td><td>Primary CPU &lt; 60% at peak · no query &gt; 100 ms p95 on reader paths</td><td><code>pg_stat_statements</code></td></tr>
+</tbody></table>
+
+<h2>8.3 Design choices that scale</h2>
+<ul>
+<li><b>Stateless API and worker</b> containers scale horizontally (ECS autoscaling on CPU and request count; workers on queue depth).</li>
+<li><b>Lazy ration build</b> means we never compute rations for inactive readers. Eager prebuild runs only for push opt-ins.</li>
+<li><b>Anonymous traffic at the edge:</b> public pages are cached at the CDN, so a viral letter costs almost nothing at the origin.</li>
+<li><b>Counters off the hot path</b> (§3.9i). Heartbeats are coalesced on the client (send on interval or page-hide only) and written with a single upsert.</li>
+<li><b>Connection pooling:</b> RDS Proxy (transaction pooling) between tasks and Postgres. Pool size per task is tuned so that total connections stay under 70% of the database's <code>max_connections</code>.</li>
+<li><b>Read replica</b> for writer pages, search, studio analytics and console reports. Reader-own data (Shelf, Tonight) always reads from the primary (read-your-writes).</li>
+<li><b>Partitioning plan</b> (triggered at ≥50M rows or a slowing vacuum): monthly range partitions (pg_partman) for <code>reads</code>, <code>reactions</code> (by <code>created_at</code>), <code>ledger_entries</code>, <code>audit_log</code>, <code>outbox_events</code>, <code>notifications</code>.</li>
+<li><b>Fan-out on publish</b> (notifications to patrons and followers) is batched in jobs of 1,000 recipients with dedupe keys, never done in the request.</li>
+</ul>
+
+<h2>8.4 Scaling playbook (cheapest first)</h2>
+<table><thead><tr><th>Symptom</th><th>First measure</th><th>Then act (in order)</th></tr></thead><tbody>
+<tr><td>Slow reader endpoint</td><td>Trace + <code>pg_stat_statements</code></td><td>Fix the query or index → Redis cache with event invalidation → replica routing</td></tr>
+<tr><td>DB CPU high at lamp waves</td><td>Top queries by total time</td><td>Coalesce heartbeats → batch writes → larger instance → replica for reads → partition</td></tr>
+<tr><td>Queue backlog</td><td>Queue depth by job type</td><td>Scale workers → split noisy job types to dedicated workers → move the hot job type to SQS (ADR first)</td></tr>
+<tr><td>Search slow or irrelevant</td><td>Query latency, result-quality reviews</td><td>Tune weights and indexes → move to OpenSearch behind the <code>search</code> module port</td></tr>
+<tr><td>Storage cost growth</td><td>S3 inventory</td><td>Lifecycle rules → AVIF variants → purge orphaned media</td></tr>
+</tbody></table>
+<p><b>Extraction criteria</b> for turning a module into its own service (ADR required): a different scaling profile proven by metrics, <i>or</i> a different security or compliance boundary, <i>and</i> a stable public interface for 3+ months. Likely first candidates: <code>media</code>/card rendering (CPU-heavy) and <code>notifications</code> fan-out.</p>
+
+<h2>8.5 Cost guardrails</h2>
+<ul>
+<li>Monthly infrastructure budget alarms per environment (MVP production target: roughly $1.5–3k/month at M12 scale; staging ≤ 30% of production; previews auto-expire).</li>
+<li>Unit metric: infrastructure cost per monthly active reader, reviewed monthly. Investigate if it grows faster than MAU.</li>
+<li>No always-on resources without a tag for owner and cost center (Terraform-enforced).</li>
+</ul>
+
+<h2 class="chapter">9.1 Environments</h2>
+<table><thead><tr><th>Env</th><th>Purpose</th><th>Data</th><th>Integrations</th></tr></thead><tbody>
+<tr><td>Local</td><td>Development: <code>docker compose</code> with Postgres, Redis, MinIO, Mailpit; Stripe CLI for webhooks</td><td>Seed set</td><td>Stripe test mode, fake push</td></tr>
+<tr><td>Preview</td><td>Per-PR web deployment pointing at the dev API; console previews behind SSO</td><td>Dev data</td><td>Test modes</td></tr>
+<tr><td>Dev</td><td>Shared integration environment, deployed on every merge to <code>main</code></td><td>Seed + synthetic</td><td>Test modes</td></tr>
+<tr><td>Staging</td><td>Production-like; release candidates; migration rehearsal; load tests</td><td>Weekly anonymized production snapshot</td><td>Stripe test mode with test clocks</td></tr>
+<tr><td>Production</td><td>Multi-AZ, single region (us-east-1), cross-region backups</td><td>Real</td><td>Live</td></tr>
+</tbody></table>
+<p>All environments are created from the same Terraform modules. Configuration differences live only in per-environment variables, and every configuration key is declared and validated at boot (Zod), so missing configuration fails fast.</p>
+
+<h2>9.2 Delivery pipeline</h2>
+<ol>
+<li><b>Trunk-based development:</b> short-lived branches; <code>main</code> is always releasable. Unfinished work ships behind release flags.</li>
+<li>Merge → build images (api, worker, web, console, all tagged with the git SHA) → deploy to <b>dev</b> → smoke tests.</li>
+<li>Promote the same images to <b>staging</b>: migrations, end-to-end suite, nightly billing suite.</li>
+<li><b>Production promote</b> (manual approval, during business hours): run migrations (a separate task, <code>migrator</code> role) → blue/green deploy for api and web (CodeDeploy) with canary 10% for 10 min → automatic rollback on alarm (5xx rate, p95, error budget burn) → workers rolled after the API.</li>
+<li>Every deploy is recorded (SHA, migrations, flags changed) and annotated on dashboards.</li>
+</ol>
+
+<h2>9.3 Database migrations</h2>
+<ul>
+<li>Forward-only, numbered SQL files, reviewed by a CODEOWNER. Never edited once merged. Mistakes are fixed by a new migration.</li>
+<li><b>Expand/contract:</b> (1) add the new structure, nullable or with a default; (2) deploy code that writes both and reads the new one; (3) backfill with a resumable job; (4) enforce constraints (<code>NOT VALID</code> then <code>VALIDATE</code>); (5) remove the old structure ≥ 2 releases later, and only after the oldest supported mobile version no longer needs it.</li>
+<li>Every migration must be compatible with the currently running code (N−1). Session settings: <code>lock_timeout = '5s'</code>, <code>statement_timeout</code> appropriate to the change. Indexes are built <code>CONCURRENTLY</code>.</li>
+<li>squawk lint in CI. A timing rehearsal on staging snapshot data is required for any table over 1M rows.</li>
+</ul>
+
+<h2>9.4 Mobile releases</h2>
+<ul>
+<li>Weekly release train: branch cut Monday → QA (Maestro + manual exploratory) → submission Wednesday → staged rollout 10% → 50% → 100% over 3 days, watching crash-free sessions (≥ 99.5%).</li>
+<li>Over-the-air updates (EAS Update) only for JavaScript bug fixes compatible with the installed native build and within store policies. Never to change business behavior, which is server-side anyway.</li>
+<li>Version support: <code>bootstrap.minSupportedVersion</code>. Versions are supported for 90 days, then soft-prompted, then hard-blocked (<code>426</code>) only for security or breaking reasons.</li>
+<li>Kill switches (ops flags) for risky client features, e.g. <code>reader.save-as-card</code>, <code>mobile.offline-cache</code>.</li>
+</ul>
+
+<h2>9.5 Feature flags</h2>
+<table><thead><tr><th>Kind</th><th>Purpose</th><th>Lifecycle</th></tr></thead><tbody>
+<tr><td>Release</td><td>Ship dark, roll out gradually</td><td>Removed within 30 days of 100% (CI warns when past <code>expires_on</code>)</td></tr>
+<tr><td>Ops</td><td>Kill switches, degrade modes (e.g. "issue-only rations")</td><td>Permanent, reviewed quarterly</td></tr>
+<tr><td>Experiment</td><td>A/B tests (e.g. ration size 5 vs. 7, decision D5)</td><td>Ends with a decision record; code path removed</td></tr>
+</tbody></table>
+<p>Flags are evaluated on the server and delivered to clients already evaluated in <code>/me/bootstrap</code>. Flags never gate security or money correctness. Changes to flags are audited.</p>
+
+<h2>9.6 Backups &amp; disaster recovery</h2>
+<ul>
+<li>RDS: point-in-time recovery for 35 days. Daily snapshots copied cross-region, kept 90 days. Monthly snapshots kept 1 year. S3: versioning plus cross-region replication for media and exports. Redis is never authoritative.</li>
+<li><b>RPO 5 min · RTO 2 h.</b> A restore drill every quarter: restore to a fresh instance, run integrity checks (ledger balanced, row counts, a sample of letters rendered), record the time taken.</li>
+<li>A regional outage runbook exists: Terraform applies to the backup region, the restored snapshot is promoted, DNS fails over, provider webhook URLs are updated.</li>
+<li>Integrity jobs run nightly: ledger balance per currency, entitlement reconcile, charges ↔ Stripe reconcile, payouts ↔ transfers reconcile. Any drift pages finance and on-call.</li>
+</ul>
+
+<h2>9.7 Observability</h2>
+<table><thead><tr><th>Signal</th><th>Standard</th></tr></thead><tbody>
+<tr><td>Logs</td><td>Structured JSON (pino) with <code>requestId</code>, <code>traceId</code>, hashed <code>userId</code>, module, event. Redaction enforced. Retained 30 days hot, 1 year cold.</td></tr>
+<tr><td>Traces</td><td>OpenTelemetry from client request → API → DB → outbox → job (trace context carried in job metadata).</td></tr>
+<tr><td>Metrics</td><td>Requests, errors and duration per route; queue depth and lag per job; business metrics: rations built, evenings completed, read completions, checkouts started vs. succeeded, webhook lag, entitlement drift, payout success, reports by priority.</td></tr>
+<tr><td>Errors</td><td>Sentry on every client and service, with release tags and source maps. Personal data scrubbed.</td></tr>
+<tr><td>SLOs</td><td>Reader API availability 99.9% (lamp hours) · <code>/tonight</code> p95 &lt; 250 ms · webhook processing 99% &lt; 15 min · payout run completes by 12:00 UTC on the 5th. Error-budget policy: when 50% of the budget is burned, feature work is paused in favor of reliability.</td></tr>
+<tr><td>Alerts</td><td>Page only for SLO burn, invariant violations (INV-04/05/07/13), P0 report SLA risk, security signals. Everything else goes to tickets.</td></tr>
+</tbody></table>
+
+<h2>9.8 Incidents &amp; runbooks</h2>
+<p>Severity: <b>SEV1</b> data leak, money error or full outage · <b>SEV2</b> major feature down or SLO breach · <b>SEV3</b> degraded. On-call rotation with a primary and a secondary. The incident commander uses a status page and keeps a comms log. A blameless postmortem is written within 5 working days, with actions tracked to completion.</p>
+<table><thead><tr><th>Runbook</th><th>Key steps</th></tr></thead><tbody>
+<tr><td>Ration builds failing</td><td>Turn on the ops flag <code>ration.issue-only</code> (serve the issue without personal slots) → inspect the builder assertion logs → fix → backfill rations for affected readers</td></tr>
+<tr><td>Payment webhooks failing</td><td>Check signature and secret rotation → inbox backlog → replay dead letters (idempotent) → reconcile entitlements</td></tr>
+<tr><td>Payout run failure</td><td>Never re-run blindly: the idempotency keys protect it, but check the transfer status first → reconcile → re-run for failed writers only</td></tr>
+<tr><td>Suspected patron-content leak</td><td>SEV1 → identify the channel (scanner, logs) → purge CDN → hotfix the render path → assess scope → notify per legal</td></tr>
+<tr><td>Leaked secret</td><td>Rotate → revoke sessions or tokens as needed → audit access logs → postmortem</td></tr>
+<tr><td>Database failover / restore</td><td>Multi-AZ failover is automatic; monitor → if corruption, point-in-time restore to a new instance → integrity checks → cut over</td></tr>
+<tr><td>CSAM / imminent risk</td><td>Follow the legal runbook; P0 on-call moderator; evidence preservation</td></tr>
+<tr><td>Report brigading</td><td>Raise thresholds for the target, priority manual review, reporter reputation review</td></tr>
+</tbody></table>
+
+<h2 class="chapter">10.1 Documentation set</h2>
+<table><thead><tr><th>Doc</th><th>Location</th><th>Updated when</th></tr></thead><tbody>
+<tr><td>Business Brief</td><td><code>docs/brief.md</code> (+ PDF)</td><td>Product strategy or pricing changes</td></tr>
+<tr><td>Engineering Handbook (Parts 1–5)</td><td><code>docs/handbook/</code></td><td>Any rule, invariant, architecture or process change, in the same PR</td></tr>
+<tr><td>ADRs</td><td><code>docs/adr/NNNN-title.md</code></td><td>Any significant or hard-to-reverse decision</td></tr>
+<tr><td>Module READMEs</td><td><code>services/core/src/modules/*/README.md</code></td><td>Public interface, events or tables change (CI checks that the README changed when <code>index.ts</code> did)</td></tr>
+<tr><td>Rule index</td><td><code>docs/rule-index.md</code> (from Part 4 §4.4)</td><td>A rule's home changes</td></tr>
+<tr><td>API reference</td><td>Generated from OpenAPI</td><td>Automatically</td></tr>
+<tr><td>Module graph</td><td>Generated <code>docs/module-graph.md</code></td><td>Automatically; diff reviewed</td></tr>
+<tr><td>Runbooks</td><td><code>docs/runbooks/</code></td><td>After every incident and game day</td></tr>
+<tr><td>Design system</td><td>Design canvas + <code>packages/tokens</code></td><td>Token or component changes</td></tr>
+<tr><td>Glossary</td><td>Part 1 §1.1</td><td>A new domain term is introduced</td></tr>
+</tbody></table>
+
+<h2>10.2 Architecture Decision Records</h2>
+<p>Template: <i>Context · Decision · Alternatives considered · Consequences · Status (proposed / accepted / superseded by NNNN) · Review trigger</i>. ADRs are immutable once accepted. A change in direction is a new ADR that supersedes the old one.</p>
+<table><thead><tr><th>ADR</th><th>Decision</th></tr></thead><tbody>
+<tr><td>001</td><td>TypeScript monorepo (pnpm + Turborepo)</td></tr>
+<tr><td>002</td><td>Modular monolith with enforced module boundaries; criteria for extracting a service</td></tr>
+<tr><td>003</td><td>One versioned REST API for all clients; contracts in Zod → OpenAPI → generated clients</td></tr>
+<tr><td>004</td><td>PostgreSQL as system of record; Drizzle; forward-only SQL migrations</td></tr>
+<tr><td>005</td><td>Transactional outbox + pg-boss for async work; inbox table for webhooks</td></tr>
+<tr><td>006</td><td>Own identity module: passwordless, passkeys, web sessions + mobile JWT/refresh rotation</td></tr>
+<tr><td>007</td><td>Stripe Billing bundles (one subscription per reader per interval) + Connect Express payouts</td></tr>
+<tr><td>008</td><td>Entitlements table as the single access source, separate from patronages</td></tr>
+<tr><td>009</td><td>Double-entry, append-only ledger with integer minor units</td></tr>
+<tr><td>010</td><td>Lazy ration build with a unique (reader, evening date) constraint; deterministic builder</td></tr>
+<tr><td>011</td><td>No certificate pinning on mobile</td></tr>
+<tr><td>012</td><td>Expo / React Native for iOS + Android; TipTap editor shared through WebView</td></tr>
+<tr><td>013</td><td>Single design-token source generating web CSS + RN themes for 3 themes × 3 type pairs</td></tr>
+<tr><td>014</td><td>Sentence anchors: block IDs + sentence hashes + re-anchoring</td></tr>
+<tr><td>015</td><td>Postgres full-text search until measured need</td></tr>
+<tr><td>016</td><td>AWS ECS Fargate + RDS + Terraform; no Kubernetes</td></tr>
+<tr><td>017</td><td>Envelope encryption for private messages</td></tr>
+<tr><td>018</td><td>Web checkout as default for mobile; IAP as a future entitlement source</td></tr>
+<tr><td>019</td><td>Server-evaluated feature flags with kinds and expiry</td></tr>
+<tr><td>020</td><td>Counts only in writer views (separate DTOs), enforced by contract tests</td></tr>
+</tbody></table>
+
+<h2>10.3 Ownership</h2>
+<ul>
+<li><b>CODEOWNERS</b> maps every module, package, migration folder and infrastructure path to an owning person or team. Each module has a named owner, who keeps its README, tests and rule references healthy.</li>
+<li>Cross-cutting owners: Security (auth, policies, secrets), Platform (infrastructure, CI, observability), Finance engineering (billing, ledger, payouts), Design systems (tokens, UI packages, modes and pairs).</li>
+<li>High-risk paths require two approvals, one from the owner: <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, <code>*/domain/policies.ts</code>, <code>db/migrations/</code>, <code>infra/</code>, <code>packages/contracts/</code>.</li>
+</ul>
+
+<h2>10.4 Working conventions</h2>
+<ul>
+<li>Conventional Commits. PR titles reference the rule or ticket. The PR template asks: rule IDs touched · migration? (expand/contract step) · security checklist (Part 4 §6.11) · screenshots in 3 themes for UI changes · flags added (owner, expiry) · docs updated.</li>
+<li>Small PRs (aim for under 400 changed lines, excluding generated code). One module per PR unless an ADR covers the cross-module change.</li>
+<li>Reviews check: is the rule in its single home? Is there a test named after it? Could this break another feature? (Check the FX matrix.)</li>
+</ul>
+
+<h2>10.5 Changing a business rule safely</h2>
+<ol class="steps">
+<li>Update the rule in Part 1 (new rule, or a changed one with a revision note). Bump the handbook version.</li>
+<li>Find the rule's single home in the rule index. If the logic exists anywhere else, that's a bug: remove the duplicate first.</li>
+<li>Find tests by rule ID (<code>grep "BR-XX-NN"</code>). Change the tests first so they describe the new behavior.</li>
+<li>Check the feature interaction matrix and scenarios for rows involving the rule. Update or add FX/SC tests.</li>
+<li>Implement behind a release flag if the change is user-visible or touches money.</li>
+<li>Check API and event compatibility (additive only). Plan migrations with expand/contract.</li>
+<li>Ship to staging, run the scenario suite, roll out the flag gradually, monitor the metrics tied to the rule, then remove the flag.</li>
+</ol>
+
+<h2>10.6 Guardrails for AI agents and new contributors (<code>AGENTS.md</code>)</h2>
+<div class="box key">
+<h4>Read first</h4>
+<p>This handbook's Part 1 (rules and invariants), Part 4 §4.2–4.4 (module anatomy and rule index), the target module's README, and the relevant ADRs.</p>
+<h4>Always</h4>
+<ul>
+<li>Work inside one module unless the task names several. Put logic in the rule's single home.</li>
+<li>Reference rule IDs in code comments and test names. Add or update tests at the right layer, including negative authorization tests.</li>
+<li>Run before proposing changes: <code>pnpm typecheck &amp;&amp; pnpm lint &amp;&amp; pnpm test --filter &lt;module&gt; &amp;&amp; pnpm contracts:check</code>.</li>
+<li>Regenerate contracts when schemas change, and commit the generated files.</li>
+<li>Update the module README, the rule index and the handbook when behavior changes.</li>
+<li>State assumptions in the PR description. Ask when a rule is ambiguous; don't guess.</li>
+</ul>
+<h4>Never</h4>
+<ul>
+<li>Edit an applied migration, write <code>UPDATE</code>/<code>DELETE</code> against ledger, audit or append-only tables, or drop columns without the expand/contract plan.</li>
+<li>Add a route without a policy, return ORM rows directly, or add counts, legal identity or patron body to reader-facing DTOs.</li>
+<li>Duplicate a rule in a client or another module. Compute money with floats. Call <code>Date.now()</code> in domain code.</li>
+<li>Call external services inside a database transaction, or skip idempotency keys on money, message or report operations.</li>
+<li>Add a runtime dependency without the dependency checklist. Disable a lint rule, test or CI gate to get a build passing.</li>
+<li>Read production data or secrets. Agents work only with seed data and test-mode credentials.</li>
+</ul>
+<h4>Human approval is required for</h4>
+<p>Changes under <code>billing/</code>, <code>ledger/</code>, <code>identity/</code>, policies, migrations, <code>infra/</code>, <code>packages/contracts/</code>, and any change to Part 1 rules or invariants.</p>
+</div>
+
+<h2>10.7 Deprecation policy</h2>
+<table><thead><tr><th>Thing</th><th>Policy</th></tr></thead><tbody>
+<tr><td>API fields / endpoints</td><td>Mark deprecated in OpenAPI → <code>Deprecation</code> + <code>Sunset</code> headers → keep ≥ 6 months and until no supported app version uses them (measured by <code>X-Client</code>) → remove</td></tr>
+<tr><td>Events</td><td>New version published alongside the old one; consumers migrate; old version removed after 2 releases with zero consumers</td></tr>
+<tr><td>Flags</td><td>By <code>expires_on</code>; CI warns, then fails 30 days after expiry</td></tr>
+<tr><td>Modules / packages</td><td>ADR, migration plan, owner sign-off</td></tr>
+</tbody></table>
+
+<h2>10.8 Review cadence</h2>
+<ul>
+<li><b>Weekly:</b> error budget, invariant alerts, flag expiries.</li>
+<li><b>Monthly:</b> dependency health, cost per MAU, rule traceability report (rules without tests), open security findings.</li>
+<li><b>Quarterly:</b> architecture review (module graph, extraction candidates, ADR review triggers), access review (staff roles, IAM), restore drill, game day, handbook currency check.</li>
+<li><b>Yearly:</b> threat model refresh, penetration test, PCI SAQ-A, privacy review of data flows and processors.</li>
+</ul>
+</section></doc-page>
+<script src="doc-page.js"></script>
+</body>
+</html>

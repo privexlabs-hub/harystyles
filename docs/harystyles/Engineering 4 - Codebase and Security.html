@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harystyles — Engineering 4: Codebase structure &amp; security</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&amp;family=Inter+Tight:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<doc-page margin="0.75in">
+<footer slot="footer"><span>HARYSTYLES · ENGINEERING HANDBOOK · PART 4</span><span>v1.0 · OCT 2026</span></footer>
+<!--BEGIN-->
+<div class="eyebrow">Engineering handbook · Part 4 of 5 · Areas 4 &amp; 6</div>
+<h1 class="part-title">Codebase structure &amp; <em>security</em></h1>
+<p class="lede">Code organized by business capability, with one home for every rule, and the controls that protect identities, data, files, secrets, endpoints and money.</p>
+<div class="meta"><span><b>Owner</b> Tech lead (structure) · Security owner (security)</span><span><b>Enforced by</b> ESLint boundaries · dependency-cruiser · architecture tests · route policy test</span></div>
+
+<h2>4.1 Repository layout</h2>
+<pre><code>harystyles/
+├─ apps/
+│  ├─ web/                    Next.js — route groups: (reader) (studio) (marketing) (auth)
+│  │  └─ src/features/&lt;feature&gt;/   components, hooks (generated API hooks), copy
+│  ├─ mobile/                 Expo — app/ (Expo Router screens), src/features/&lt;feature&gt;/
+│  └─ console/                Next.js — internal: curation, moderation, finance
+├─ services/
+│  └─ core/                   the backend (one codebase, two entrypoints)
+│     ├─ src/entry/api.ts     Fastify bootstrap: plugins, auth, route registry
+│     ├─ src/entry/worker.ts  pg-boss bootstrap: job registry, schedulers, outbox relay
+│     ├─ src/kernel/          clock, ids, money, errors, outbox, idempotency, audit, tx, logger
+│     ├─ src/modules/
+│     │  ├─ identity/  preferences/  profiles/  content/  curation/  ration/
+│     │  ├─ engagement/  messaging/  billing/  ledger/  moderation/
+│     │  └─ notifications/  search/  media/  admin/
+│     └─ db/
+│        ├─ migrations/       0001_init.sql … (forward-only)
+│        └─ seed/             seed-content.json (the single seed set — fixes design contradiction #8)
+├─ packages/
+│  ├─ contracts/              Zod schemas, enums, error codes, events → OpenAPI → generated client
+│  ├─ tokens/                 design tokens source → CSS vars, RN theme (3 themes × 3 type pairs)
+│  ├─ editor-schema/          ProseMirror schema + anchor utilities (shared web/mobile/server)
+│  ├─ ui-web/                 web primitives (Button, Card, Badge, Toast…) from the component catalog
+│  ├─ ui-native/              React Native primitives with the same names and props
+│  ├─ copy/                   all user-facing strings (ICU), voice rules linted
+│  ├─ test-kit/               factories, fake clock, fake gateways, scenario DSL
+│  └─ config/                 tsconfig, eslint, prettier presets
+├─ infra/terraform/           envs/{dev,staging,prod}, modules/{network,ecs,rds,…}
+├─ docs/                      handbook, adr/, runbooks/, modules index (generated)
+├─ AGENTS.md                  rules for AI agents and contributors (Part 5 §10.6)
+└─ CODEOWNERS</code></pre>
+
+<h2>4.2 Module anatomy</h2>
+<pre><code>services/core/src/modules/billing/
+├─ index.ts          PUBLIC SURFACE: commands, queries, event types, DTO types. Nothing else is importable.
+├─ domain/           pure TypeScript — entities, value objects, state machines, policies, rules.
+│                    No I/O, no framework imports, no Date.now() (uses Clock).
+├─ application/      use cases: validate → load → domain → persist → outbox, one transaction each.
+│                    Declares ports (interfaces) it needs: PatronageRepo, PaymentsGateway…
+├─ infra/            adapters: Drizzle repositories, Stripe gateway, webhook verifier, schema.ts (tables)
+├─ http/             routes: request/response schemas from @hs/contracts, policy, call use case, map DTO
+├─ jobs/             job + event handlers (thin: parse → call use case)
+├─ tests/            unit (domain), integration (application + real Postgres), contract
+└─ README.md         owner · responsibilities · rules implemented (BR/INV ids) · events in/out · tables</code></pre>
+<h3>Dependency rules (CI-enforced)</h3>
+<table><thead><tr><th>Layer</th><th>May import</th><th>Must not import</th></tr></thead><tbody>
+<tr><td>domain</td><td>own domain, <code>kernel</code> (types, money, clock interface)</td><td>application, infra, http, any other module, any framework</td></tr>
+<tr><td>application</td><td>own domain, <code>kernel</code>, other modules' <code>index.ts</code></td><td>infra (it depends on ports, not adapters), http</td></tr>
+<tr><td>infra</td><td>own application ports, own domain, drivers/SDKs</td><td>other modules' infra or tables</td></tr>
+<tr><td>http / jobs</td><td>own application, <code>@hs/contracts</code></td><td>infra directly, domain internals of other modules</td></tr>
+<tr><td>apps/*</td><td><code>packages/*</code> (contracts client, ui, tokens, copy)</td><td><code>services/*</code> (the network is the boundary)</td></tr>
+<tr><td>packages/*</td><td>other packages</td><td>apps, services</td></tr>
+</tbody></table>
+<p>Cycles between modules are forbidden (dependency-cruiser). If two modules need each other, one of them reacts to the other's event instead. Allowed sync module dependencies are declared in <code>docs/module-graph.md</code>, which is generated and checked in CI.</p>
+
+<h2>4.3 Allowed module dependency graph (sync)</h2>
+<pre><code>content      → profiles, media
+curation     → content, profiles                    (never billing — INV-10)
+ration       → curation, content, engagement, billing(entitlements.canRead), preferences
+engagement   → content
+messaging    → profiles, billing(entitlements), engagement(isBlocked)
+billing      → profiles, identity
+ledger       → (none; reacts to billing events)
+moderation   → content, profiles, messaging, identity
+notifications→ preferences, identity
+search       → content, profiles                   (reads public render only)
+admin        → orchestrates via other modules' index.ts; owns no business rules</code></pre>
+
+<h2 class="chapter">4.4 Rule index — the single home of each business rule</h2>
+<p>This table is how duplicated business logic is prevented. Before writing logic, look up its home. If a rule isn't listed, add it here in the same PR that implements it.</p>
+<table><thead><tr><th>Rule</th><th>Single home</th><th>Clients get it as</th></tr></thead><tbody>
+<tr><td>Can this viewer read this letter? (BR-LE-05, INV-01)</td><td><code>billing/entitlements.canRead</code> + <code>content.renderForViewer</code></td><td><code>access</code> block + already-truncated <code>body</code></td></tr>
+<tr><td>Preview length</td><td><code>content/domain/preview.ts</code></td><td>Truncated body</td></tr>
+<tr><td>Prices (BR-BI-01)</td><td><code>billing/domain/pricing.ts</code> (reads <code>price_points</code>)</td><td><code>cta.price</code>, checkout response</td></tr>
+<tr><td>Split and fee allocation (BR-LD-02)</td><td><code>ledger/domain/allocate.ts</code></td><td>Studio earnings from the ledger</td></tr>
+<tr><td>Evening date, lamp time (BR-RA-01/02)</td><td><code>ration/domain/clock.ts</code>, <code>lamp.ts</code></td><td><code>bootstrap.lamp</code> {eveningDate, nextLampAt}</td></tr>
+<tr><td>Ration composition (BR-RA-05)</td><td><code>ration/domain/builder.ts</code></td><td><code>GET /tonight</code></td></tr>
+<tr><td>Read completion (BR-RA-08)</td><td><code>ration/domain/reading.ts</code></td><td>Slot <code>readAt</code></td></tr>
+<tr><td>Issue validity (BR-CU-02/03/07)</td><td><code>curation/domain/issue-policy.ts</code></td><td>Console validation messages</td></tr>
+<tr><td>Who sees counts (BR-EN-02, INV-02)</td><td>DTO schemas <code>contracts/views/reader.*</code> vs <code>contracts/views/writer.*</code></td><td>Counts only exist in writer views</td></tr>
+<tr><td>Message quotas (BR-EN-04/05)</td><td><code>messaging/domain/quota.ts</code></td><td>Error codes</td></tr>
+<tr><td>Notification permission, quiet hours, caps (BR-NO)</td><td><code>notifications/domain/gate.ts</code></td><td>—</td></tr>
+<tr><td>State machines (writer, letter, issue, patronage)</td><td><code>&lt;module&gt;/domain/*-state.ts</code></td><td>Status enums</td></tr>
+<tr><td>Permissions (§1.2)</td><td><code>&lt;module&gt;/domain/policies.ts</code>, registered per route</td><td><code>bootstrap.capabilities</code> (UI hints only, never trusted)</td></tr>
+<tr><td>Moods, glyphs, content notes, themes, type pairs</td><td><code>@hs/contracts/enums.ts</code></td><td>Imported enums</td></tr>
+<tr><td>User-facing copy and voice</td><td><code>@hs/copy</code></td><td>Message keys</td></tr>
+<tr><td>Design tokens, modes and pairs</td><td><code>@hs/tokens</code></td><td>Generated CSS / RN theme</td></tr>
+</tbody></table>
+<p>Clients may import <b>enums, schemas and copy</b>. They must not import or reimplement <b>rules</b>. A client that needs a derived value (e.g. "can I show the patron button?") gets it from the API response.</p>
+
+<h2>4.5 Contracts pipeline</h2>
+<ol>
+<li>Request/response schemas, enums, error codes and event payloads are written in Zod in <code>packages/contracts</code>.</li>
+<li>The API registers routes with these schemas: requests are validated (unknown keys rejected), and responses are <b>serialized through the schema</b>, so undeclared fields are stripped. This protects INV-01, INV-02 and INV-03.</li>
+<li>CI generates <code>openapi.json</code> and the TypeScript client. The PR fails if the generated files aren't committed or if <code>openapi-diff</code> reports a breaking change in <code>/v1</code>.</li>
+<li>Web and mobile use only the generated client (wrapped in TanStack Query hooks).</li>
+</ol>
+
+<h2>4.6 Naming &amp; code conventions</h2>
+<table><thead><tr><th>Thing</th><th>Convention</th><th>Example</th></tr></thead><tbody>
+<tr><td>Files</td><td>kebab-case</td><td><code>issue-policy.ts</code></td></tr>
+<tr><td>Use cases</td><td>Imperative verb-noun</td><td><code>startPatronage</code>, <code>switchMood</code></td></tr>
+<tr><td>Events</td><td>Past tense, PascalCase</td><td><code>PatronageLapsed</code></td></tr>
+<tr><td>Jobs</td><td><code>module.verb-noun</code></td><td><code>payout.run</code></td></tr>
+<tr><td>Error codes</td><td><code>MODULE_REASON</code></td><td><code>RATION_MOOD_ALREADY_SWITCHED</code></td></tr>
+<tr><td>Feature flags</td><td><code>area.feature</code> + kind + owner + expiry</td><td><code>reader.save-as-card</code></td></tr>
+<tr><td>DB</td><td>snake_case; JSON is camelCase; mapping only in infra/http</td><td><code>reading_minutes</code> ↔ <code>readingMinutes</code></td></tr>
+<tr><td>Rule references</td><td>Comment + test name</td><td><code>// BR-RA-07</code></td></tr>
+</tbody></table>
+<ul>
+<li>Errors: domain code throws typed <code>DomainError(code)</code>. The HTTP layer maps it to problem+json. No string matching on messages.</li>
+<li>No <code>Date.now()</code>, <code>new Date()</code> or <code>Math.random()</code> in domain code. Inject <code>Clock</code> and <code>Random</code> (lint rule).</li>
+<li>No raw SQL outside <code>infra/</code>. Parameterized queries only (Drizzle or the <code>sql``</code> tag).</li>
+<li>Comments explain <i>why</i>, and reference rule IDs. The code says <i>what</i>.</li>
+</ul>
+
+<h2>4.7 Frontend structure</h2>
+<ul>
+<li><b>Feature folders</b> mirror the modules: <code>tonight</code>, <code>moods</code>, <code>reader</code>, <code>writer-page</code>, <code>shelf</code>, <code>letters-inbox</code>, <code>patronage</code>, <code>studio-*</code>, <code>settings</code>. Each folder holds its screens/routes, components and hooks, so it can be removed cleanly.</li>
+<li><b>UI primitives</b> (<code>ui-web</code>, <code>ui-native</code>) share names and props, and consume only tokens. Product code never uses raw colors or font names.</li>
+<li><b>Server state</b> lives only in TanStack Query. <b>UI state</b> stays local, plus one small store for session and preferences.</li>
+<li><b>Web rendering:</b> public reader pages are server components (SEO, CDN-cacheable when anonymous). Studio and Shelf are client-heavy and private.</li>
+<li><b>Mobile offline:</b> tonight's ration and its letters (as the API returned them, already access-shaped) are persisted for offline reading. Heartbeats are queued and replayed.</li>
+</ul>
+
+<h2 class="chapter">6.1 Security model &amp; threat summary</h2>
+<table><thead><tr><th>Asset</th><th>Threat</th><th>Controls</th></tr></thead><tbody>
+<tr><td>Patron-only text</td><td>Leak via API, server-rendered HTML, cache, search, OG image, email or scraping</td><td>Single render path, schema-serialized DTOs, <code>private</code> cache headers, leak-scanner tests, entitlement-gated signed media URLs</td></tr>
+<tr><td>Accounts</td><td>Takeover (phishing, token theft, linking abuse)</td><td>Passwordless, passkeys, short-lived tokens, refresh rotation with reuse detection, verified-email-only linking, new-device notice</td></tr>
+<tr><td>Money</td><td>Card testing, self-dealing, double payout, refund abuse</td><td>Stripe Radar, checkout rate limits, self-patron check (BR-BI-02), ledger idempotency, refund limits</td></tr>
+<tr><td>Private messages</td><td>Unauthorized reading (including by staff)</td><td>Envelope encryption, report-gated moderator access, access audit</td></tr>
+<tr><td>Staff tools</td><td>Insider abuse, compromised staff account</td><td>SSO + hardware-key MFA, least privilege roles, break-glass flow, full audit, separate console origin</td></tr>
+<tr><td>Infrastructure</td><td>Secret leakage, over-privileged services</td><td>Secrets Manager, per-service IAM roles, DB role separation, gitleaks</td></tr>
+<tr><td>Availability</td><td>Abuse traffic, bots at lamp time</td><td>WAF, rate limits, CDN, autoscaling, cheap anonymous paths</td></tr>
+<tr><td>Readers in crisis</td><td>Harm from content or messages</td><td>Content notes, interstitials, classifier, P0 escalation (BR-MO)</td></tr>
+</tbody></table>
+
+<h2>6.2 Identity, sessions &amp; tokens</h2>
+<table><thead><tr><th>Client</th><th>Mechanism</th></tr></thead><tbody>
+<tr><td>Web (reader, studio)</td><td>Server-side session. Cookie <code>__Host-hs_sid</code>: HttpOnly, Secure, SameSite=Lax, Path=/. 30-day rolling, 90-day absolute. CSRF: SameSite plus a double-submit token header on every state-changing request.</td></tr>
+<tr><td>Mobile</td><td>Access JWT (EdDSA, 15 min, contains <code>sub</code>, <code>sid</code>, <code>roles</code>, <code>kid</code>) + opaque refresh token (60 days, rotated on every use, stored hashed). Re-use of an old refresh token revokes the whole session family. Tokens are kept in the Keychain/Keystore via SecureStore.</td></tr>
+<tr><td>Console (staff)</td><td>Separate origin. Requires a staff role and a WebAuthn MFA within the last 12h. Sessions last 12h.</td></tr>
+</tbody></table>
+<ul>
+<li>Magic links: 32 random bytes, stored hashed, 15-minute expiry, single use. The response is the same whether or not the email exists (no account enumeration).</li>
+<li>OAuth: PKCE plus state/nonce. Apple's private relay emails are supported. Linking only on verified email (BR-ID-02).</li>
+<li>Step-up re-authentication (≤10 min) for email change, account deletion, payout onboarding links and role grants.</li>
+<li>JWT signing keys rotate every 90 days (old keys accepted until their tokens expire). Revoking a session immediately blocks refresh; access tokens die within 15 minutes.</li>
+</ul>
+
+<h2>6.3 Authorization</h2>
+<ul>
+<li><b>Deny by default.</b> Every route registration must declare <code>policy</code> (e.g. <code>Policies.writerOwnsLetter</code>, <code>Policies.role("curator")</code>, <code>Policies.public</code>). The <b>route policy test</b> loads the registry and fails CI if any route lacks a policy, or if any <code>/admin</code> route allows non-staff.</li>
+<li><b>Object-level checks</b> (protection against users accessing other users' objects by changing IDs): repositories for user-owned data always take the actor, e.g. <code>studioLetters.findForWriter(actorId, letterId)</code>. A missing row returns <code>404</code>, not <code>403</code> (doesn't reveal that the object exists).</li>
+<li><b>Capabilities</b> sent to clients (<code>bootstrap.capabilities</code>) are hints for showing or hiding UI. They are never trusted on the server.</li>
+<li><b>Postgres row-level security</b> is enabled as defense in depth on <code>messages</code>, <code>kept_lines</code> and <code>reads</code>. The app sets <code>app.user_id</code> per transaction. The primary enforcement remains the application policies.</li>
+</ul>
+
+<h2>6.4 Endpoint hardening</h2>
+<table><thead><tr><th>Control</th><th>Standard</th></tr></thead><tbody>
+<tr><td>Input validation</td><td>Zod strict schemas. Unknown fields rejected. String lengths bounded. Body limit 256 KB (letter save: 2 MB).</td></tr>
+<tr><td>Output</td><td>Serialized through response schemas only (no returning whole ORM rows).</td></tr>
+<tr><td>Rate limits</td><td>Auth: 5/min per IP and 10/hour per email · checkout: 10/hour per user · tips: 20/day · messages: BR-EN-04 · reactions: 120/min · search: 60/min · anonymous reads: 300/min per IP · admin: 600/min per staff member.</td></tr>
+<tr><td>Webhooks</td><td>Provider signature check, ±5 min timestamp tolerance, stored before processing, never trusted for amounts without re-fetching from the provider in billing-critical paths.</td></tr>
+<tr><td>CORS</td><td>Allow-list: web, console and marketing origins. Mobile doesn't need CORS.</td></tr>
+<tr><td>Headers</td><td>HSTS (preload), CSP with nonces (no <code>unsafe-inline</code> scripts), <code>frame-ancestors 'none'</code>, <code>Referrer-Policy: strict-origin-when-cross-origin</code>, <code>Permissions-Policy</code> minimal.</td></tr>
+<tr><td>Errors</td><td>No stack traces or internal IDs leaked. A <code>requestId</code> is always returned.</td></tr>
+<tr><td>Enumeration</td><td>Uniform responses for auth and existence checks. Opaque, signed cursors.</td></tr>
+<tr><td>Timeouts</td><td>Request timeout 15 s; DB statement timeout 5 s (API), 60 s (jobs).</td></tr>
+</tbody></table>
+
+<h2>6.5 Data protection</h2>
+<table><thead><tr><th>Class</th><th>Examples</th><th>Controls</th></tr></thead><tbody>
+<tr><td>Restricted</td><td>Message bodies, session secrets, signing keys, CSAM evidence</td><td>Application-level envelope encryption (KMS data keys) for messages; secrets only in Secrets Manager; access audited</td></tr>
+<tr><td>Confidential</td><td>Email, reading history, reactions, kept lines, follows, payment references, location cell</td><td>Encrypted at rest (RDS/KMS), never in logs, exportable and deletable, minimized</td></tr>
+<tr><td>Internal</td><td>Writer stats, curation notes, audit log</td><td>Role-gated</td></tr>
+<tr><td>Public</td><td>Public letters, pen names, notebooks</td><td>Integrity controls only</td></tr>
+</tbody></table>
+<ul>
+<li><b>Card data never touches our servers</b> (Stripe Elements/PaymentSheet → PCI SAQ-A). Writers' legal identity and bank data stay at Stripe (BR-WR-05).</li>
+<li>IP addresses are stored only as an HMAC with a monthly-rotating salt (for abuse correlation).</li>
+<li>Logger redaction paths: <code>authorization</code>, <code>cookie</code>, <code>*.token</code>, <code>*.email</code>, <code>body.text</code>, <code>message.body</code>, <code>payment*</code>. A CI test feeds known secrets through the logger and asserts they're redacted (INV-17).</li>
+<li>TLS 1.2+ everywhere, including internal hops. Database connections use <code>sslmode=verify-full</code>.</li>
+</ul>
+
+<h2>6.6 Files</h2>
+<ul>
+<li>Presigned POST with <code>content-length-range</code> and an exact <code>Content-Type</code>. The server re-checks magic bytes and rejects SVG, HTML and anything executable.</li>
+<li>EXIF/GPS metadata stripped. Malware scan (ClamAV) in the worker. Images re-encoded, which neutralizes polyglot files.</li>
+<li>Private bucket for patron-letter media. Signed URLs only after the entitlement check, 10-minute expiry, no listing permission anywhere.</li>
+<li>Object keys contain no personal data. Avatars use content-hash keys.</li>
+</ul>
+
+<h2>6.7 Secrets &amp; infrastructure access</h2>
+<ul>
+<li>AWS Secrets Manager per environment, injected at task start. Nothing in the repo or in images (gitleaks pre-commit + CI). Rotation: database credentials 90 days, API keys on staff departure or yearly.</li>
+<li>IAM: separate task roles for <code>api</code>, <code>worker</code> and <code>web</code>, each with only the S3 prefixes, KMS keys and secrets it needs. The web task can't reach the database at all (network policy).</li>
+<li>Database roles: <code>app_rw</code> (DML only, no DDL; INSERT-only on ledger and audit tables), <code>migrator</code> (DDL, used only by the migration step), <code>analytics_ro</code> (only views without personal data). Nobody connects to production as superuser; break-glass access is time-boxed and audited.</li>
+<li>Production access requires SSO + MFA. Shell access only through audited sessions (SSM). No direct database access from laptops.</li>
+</ul>
+
+<h2>6.8 Business-operation security (fraud &amp; abuse)</h2>
+<table><thead><tr><th>Abuse</th><th>Mitigation</th></tr></thead><tbody>
+<tr><td>Card testing through tips or checkout</td><td>Radar rules, checkout requires a verified email, velocity limits, CAPTCHA (Turnstile) after anomalies</td></tr>
+<tr><td>Self-patronage / circular funding</td><td>BR-BI-02, payment-fingerprint comparison against the writer's own account, finance review queue for clusters</td></tr>
+<tr><td>Buying placement with fake patrons</td><td>Impossible by design: curation has no billing input (INV-10)</td></tr>
+<tr><td>Refund farming</td><td>One self-serve refund per 12 months; patterns flagged</td></tr>
+<tr><td>Scraping patron content</td><td>No bulk endpoints, per-user read rate limits, anomaly alerts. Optional future: per-patron invisible watermark.</td></tr>
+<tr><td>Message spam or harassment</td><td>Quotas, blocks, classifier, sanctions</td></tr>
+<tr><td>Report brigading</td><td>BR-MO-07 thresholds, reporter reputation weighting</td></tr>
+</tbody></table>
+
+<h2>6.9 Mobile-specific</h2>
+<ul>
+<li>No secrets in the app bundle. All privileged operations go through the API.</li>
+<li>Universal Links / App Links with verified domains. Deep-link parameters are validated as untrusted input.</li>
+<li>The editor WebView loads only bundled assets (no remote URLs, JavaScript bridge allow-list).</li>
+<li>Certificate pinning: <b>not used</b> (the risk of locking users out outweighs the benefit; ADR-011). We rely on TLS plus short-lived tokens.</li>
+<li>Screenshots are allowed (it's a reading app). Patron content cached offline is stored in app-private storage and cleared on logout or when the entitlement is lost.</li>
+</ul>
+
+<h2>6.10 Privacy &amp; compliance</h2>
+<ul>
+<li>GDPR / UK GDPR / CCPA: lawful bases recorded, data export (BR-PR-06), deletion (BR-ID-04), processors listed with data-processing agreements (Stripe, AWS, Postmark, Sentry, Grafana, Expo, classifier provider).</li>
+<li>Analytics: first-party, cookie-less, aggregated product analytics. No advertising or tracking SDKs. App store privacy labels kept in sync with the actual data flows.</li>
+<li>PCI DSS SAQ-A attestation yearly. Child-safety and CSAM obligations follow a runbook written with counsel.</li>
+<li>Security review is required for changes to: auth, policies, billing, ledger, messaging, files, the admin console, and new integrations.</li>
+</ul>
+
+<h2>6.11 Endpoint security checklist (every PR adding or changing a route)</h2>
+<ol>
+<li>Policy declared, with a negative test for the wrong role, the wrong owner and anonymous access.</li>
+<li>Request schema strict, with bounded lengths. Response schema contains no counts, legal identity or full patron body unless the policy guarantees it.</li>
+<li>Rate-limit class assigned. <code>Idempotency-Key</code> required if the route creates money, messages, reports or patronages.</li>
+<li>Audit entry if the actor is staff or the action touches money or sanctions.</li>
+<li>Errors use registered codes. Nothing sensitive is logged.</li>
+<li>Generated client and OpenAPI updated, with no breaking diff.</li>
+</ol>
+<!--END-->
+</doc-page>
+<script src="doc-page.js"></script>
+</body>
+</html>
